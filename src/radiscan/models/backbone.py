@@ -16,6 +16,8 @@ swapped without silently breaking explainability.
 
 from __future__ import annotations
 
+import logging
+
 import torch
 import torch.nn as nn
 
@@ -28,6 +30,8 @@ except ImportError:  # pragma: no cover - exercised only in minimal installs
 
 import torchvision.models as tvm
 
+log = logging.getLogger(__name__)
+
 
 class Backbone(nn.Module):
     """Wraps a timm (or torchvision fallback) feature extractor."""
@@ -37,19 +41,42 @@ class Backbone(nn.Module):
         self.name = name
 
         if _HAS_TIMM:
-            self.body = timm.create_model(
-                name,
-                pretrained=pretrained,
-                num_classes=0,  # strip the classifier
-                global_pool="",  # keep the spatial map
-                in_chans=in_chans,
-            )
+            self.body = self._create_timm(name, pretrained, in_chans)
             self.out_features = int(self.body.num_features)
         else:
             self.body, self.out_features = _torchvision_fallback(name, pretrained)
 
         self.pool = nn.AdaptiveAvgPool2d(1)
         self._feature_map: torch.Tensor | None = None
+
+    @staticmethod
+    def _create_timm(name: str, pretrained: bool, in_chans: int) -> nn.Module:
+        """Build a timm model, degrading gracefully when weights can't be fetched.
+
+        Pretrained weights come from the Hugging Face hub. On a machine with no
+        internet, or behind a university firewall that blocks it, that download
+        raises -- and crashing at model construction is a terrible failure mode
+        for something as recoverable as "start from random weights instead".
+        We warn loudly (transfer learning is worth several AUC points, so this
+        is never what you want for a real run) and continue.
+        """
+        kwargs = dict(num_classes=0, global_pool="", in_chans=in_chans)
+        try:
+            return timm.create_model(name, pretrained=pretrained, **kwargs)
+        except Exception as exc:
+            if not pretrained:
+                raise
+            log.warning(
+                "Could not download pretrained weights for %r (%s: %s).\n"
+                "Falling back to RANDOM initialisation. Expect a large accuracy "
+                "drop -- ImageNet initialisation is worth several AUC points here. "
+                "Fix your network, or pre-download the weights on a connected "
+                "machine and set HF_HOME to the shared cache.",
+                name,
+                type(exc).__name__,
+                exc,
+            )
+            return timm.create_model(name, pretrained=False, **kwargs)
 
     # -- Grad-CAM plumbing ---------------------------------------------------
     @property

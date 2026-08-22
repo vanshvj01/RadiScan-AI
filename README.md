@@ -108,7 +108,24 @@ pytest
 84 tests, no dataset needed — they run on synthetic images generated in
 `tmp_path`. If this is green, your environment is correct.
 
-### 3. Data
+### 3. See the whole thing work — before downloading any data
+
+```bash
+python scripts/demo.py
+```
+
+Generates a synthetic dataset with a learnable signal, builds patient-disjoint
+splits, verifies them, trains for six CPU epochs, calibrates, evaluates, and
+runs a single-image prediction with Grad-CAM. About five minutes, no download.
+It leaves a real checkpoint in `models/checkpoints/` so the API and dashboard
+have something to serve immediately.
+
+Expect **mean AUC around 0.85–0.90**. If it lands near 0.50, the pipeline is
+broken — which is exactly what this is for. The model is trained on synthetic
+shapes, so delete the checkpoint before training for real; nothing from the demo
+belongs in your report.
+
+### 4. Data
 
 Download **CheXpert-small** (~11 GB) from Kaggle into `data/raw/chexpert/`, then:
 
@@ -121,7 +138,7 @@ python -m radiscan.cli.prepare_data \
 
 This produces **patient-disjoint** splits and asserts zero patient overlap.
 
-### 4. Verify before you burn a GPU-hour
+### 5. Verify before you burn a GPU-hour
 
 ```bash
 python -m radiscan.cli.verify_data --config configs/chexpert_base.yaml
@@ -132,7 +149,7 @@ per-class positive rates. **Do not skip it.** The loader raises on a missing
 image rather than substituting a blank frame, which is exactly the failure that
 lets a pipeline train "successfully" to 0.50 AUC with no error in the logs.
 
-### 5. Train
+### 6. Train
 
 ```bash
 # Laptop smoke test first -- ~10 minutes, proves the loop runs
@@ -150,7 +167,7 @@ Training automatically fits a temperature, tunes per-class thresholds, and
 writes both into `models/checkpoints/best_model.pth`. There is no separate
 "remember to calibrate" step to forget.
 
-### 6. Evaluate — one command, every table and figure
+### 7. Evaluate — one command, every table and figure
 
 ```bash
 python -m radiscan.cli.evaluate --config configs/chexpert_base.yaml --split test
@@ -161,7 +178,7 @@ Writes to `results/`: `per_class_metrics.csv` (Table 1), `summary.json`,
 diagram, per-class AUC bars, the uncertainty-vs-accuracy chart and the selective
 prediction curve. Every figure ships with the CSV behind it.
 
-### 7. Run the application
+### 8. Run the application
 
 ```bash
 # Backend -- SQLite, Celery eager, no Redis, no Postgres
