@@ -7,7 +7,7 @@ name = "radiscan"
 version = "2.0.0"
 description = "Uncertainty-aware, explainable deep learning for chest radiograph interpretation"
 readme = "README.md"
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.10,<3.15"
 license = { text = "MIT" }
 authors = [{ name = "Vansh Vijayvargiya" }]
 

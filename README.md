@@ -81,6 +81,13 @@ in the viva.
 
 ### 1. Environment
 
+**Use Python 3.11 or 3.12.** Not 3.13+, and not 3.14 — several dependencies
+(`timm`, `albumentations`, `opencv-python`, `scikit-learn`) lag new CPython
+releases by months. On a version with no prebuilt wheel, pip falls back to
+building from source and fails on Windows without Visual C++ build tools. Check
+with `python --version` before you start; if it is too new, install 3.12 from
+python.org and create the venv with `py -3.12 -m venv .venv`.
+
 ```bash
 git clone <your-fork> radiscan && cd radiscan
 python -m venv .venv
