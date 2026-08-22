@@ -22,6 +22,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("SECRET_KEY", "test-secret-key-not-for-production-use-1234")
     monkeypatch.setenv("DEBUG", "true")
     monkeypatch.setenv("ALLOW_UNTRAINED", "true")
+    # Point at a path that cannot exist, so these tests always exercise the
+    # untrained-demo path. Without this, a real checkpoint left in the default
+    # location by scripts/demo.py silently changes what is under test.
+    monkeypatch.setenv("CHECKPOINT_PATH", str(tmp_path / "no-such-checkpoint.pth"))
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
     monkeypatch.setenv("HEATMAP_DIR", str(tmp_path / "heatmaps"))
     monkeypatch.setenv("CELERY_EAGER", "true")
