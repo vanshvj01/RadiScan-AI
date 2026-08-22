@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Data and artefacts -- never commit these
+data/raw/
+data/splits/
+data/uploads/
+data/heatmaps/
+models/checkpoints/
+logs/
+results/
+*.pth
+*.db
+
+# Node
+node_modules/
+.next/
+out/
+
+# Env
+.env
+.env.local
+web/.env.local
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

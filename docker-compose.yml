@@ -1,0 +1,79 @@
+# Full production-shaped topology. For day-to-day development you do NOT need
+# this: `uvicorn services.api.main:app --reload` runs the whole backend on
+# SQLite with Celery in eager mode.
+#
+#   docker compose up -d postgres redis     # just the infrastructure
+#   docker compose up -d --build            # everything
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: radiscan
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-radiscan}
+      POSTGRES_DB: radiscan
+    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U radiscan"]
+      interval: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment:
+      DATABASE_URL: postgresql+psycopg2://radiscan:${POSTGRES_PASSWORD:-radiscan}@postgres:5432/radiscan
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_EAGER: "false"
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
+      DEVICE: ${DEVICE:-cpu}
+      CHECKPOINT_PATH: /app/models/checkpoints/best_model.pth
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    command: celery -A services.api.core.tasks.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      DATABASE_URL: postgresql+psycopg2://radiscan:${POSTGRES_PASSWORD:-radiscan}@postgres:5432/radiscan
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_EAGER: "false"
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
+      DEVICE: ${DEVICE:-cpu}
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+volumes:
+  pgdata:

@@ -1,0 +1,64 @@
+# RadiScan -- baseline CheXpert configuration.
+# This is the run whose numbers go in the report. Start from `smoke.yaml` to
+# prove the pipeline works, then come back here.
+
+data:
+  dataset: chexpert
+  data_dir: data/raw/chexpert
+  train_csv: data/splits/train.csv
+  val_csv: data/splits/val.csv
+  test_csv: data/splits/test.csv
+  image_size: 320          # 224 loses small nodules; 384 if VRAM allows
+  uncertain_policy: lsr    # Stanford's best-performing U-label policy
+  lsr_low: 0.05
+  lsr_high: 0.85
+  max_train_images: null
+  max_val_images: null
+  num_workers: 4           # set 0 on Windows
+  balanced_sampling: true
+  frontal_only: true
+
+model:
+  backbone: densenet121    # convnext_tiny / tf_efficientnetv2_s for the ablation
+  pretrained: true
+  use_transformer: false
+  vit_name: vit_small_patch16_224
+  dropout: 0.2
+  fracture_head: true
+  confidence_head: true
+
+loss:
+  kind: asl                # asl > focal > bce on this problem
+  asl_gamma_neg: 4.0
+  asl_gamma_pos: 0.0
+  asl_clip: 0.05
+  focal_gamma: 2.0
+  pos_weight: true
+  disease_weight: 1.0
+  fracture_weight: 0.3
+
+train:
+  epochs: 25
+  batch_size: 32           # 8 on CPU, 16 @ 6GB VRAM, 32 @ 12GB
+  lr: 0.0001
+  head_lr_mult: 10.0
+  weight_decay: 0.0001
+  warmup_epochs: 2
+  scheduler: cosine
+  amp: true
+  ema_decay: 0.999
+  grad_clip: 5.0
+  accumulate_steps: 1      # raise to keep effective batch 32 on small VRAM
+  early_stopping_patience: 6
+  freeze_backbone_epochs: 1
+  mixup_alpha: 0.2
+  seed: 42
+  checkpoint_dir: models/checkpoints
+  log_dir: logs
+  monitor: val_mean_auc
+
+inference:
+  mc_dropout_samples: 20
+  tta_hflip: true
+  temperature: null        # fitted automatically after training
+  thresholds: {}           # tuned automatically after training

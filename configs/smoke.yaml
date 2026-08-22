@@ -1,0 +1,42 @@
+# Smoke test -- proves the loop runs end to end on a laptop in ~10 minutes.
+# The resulting model is NOT usable; it exists to catch plumbing bugs before you
+# spend a GPU-hour.
+
+data:
+  dataset: chexpert
+  data_dir: data/raw/chexpert
+  train_csv: data/splits/train.csv
+  val_csv: data/splits/val.csv
+  image_size: 224
+  uncertain_policy: lsr
+  max_train_images: 400
+  max_val_images: 200
+  num_workers: 0
+  balanced_sampling: true
+  frontal_only: true
+
+model:
+  backbone: densenet121
+  pretrained: true
+  dropout: 0.2
+
+loss:
+  kind: asl
+
+train:
+  epochs: 2
+  batch_size: 8
+  lr: 0.0002
+  warmup_epochs: 0
+  scheduler: cosine
+  amp: false
+  ema_decay: 0.0
+  freeze_backbone_epochs: 0
+  mixup_alpha: 0.0
+  early_stopping_patience: 99
+  checkpoint_dir: models/checkpoints/smoke
+  log_dir: logs/smoke
+
+inference:
+  mc_dropout_samples: 5
+  tta_hflip: false

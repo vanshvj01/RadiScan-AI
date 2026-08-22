@@ -1,0 +1,43 @@
+# Ablation arm B -- modern backbone, identical schedule to the baseline.
+# Change ONLY the backbone. Same seed, same data, same epochs. Anything else and
+# the comparison in Table 2 is not a controlled experiment.
+
+data:
+  dataset: chexpert
+  data_dir: data/raw/chexpert
+  train_csv: data/splits/train.csv
+  val_csv: data/splits/val.csv
+  test_csv: data/splits/test.csv
+  image_size: 320
+  uncertain_policy: lsr
+  num_workers: 4
+  balanced_sampling: true
+  frontal_only: true
+
+model:
+  backbone: convnext_tiny
+  pretrained: true
+  use_transformer: false
+  dropout: 0.2
+
+loss:
+  kind: asl
+
+train:
+  epochs: 25
+  batch_size: 24
+  lr: 0.0001
+  head_lr_mult: 10.0
+  warmup_epochs: 2
+  scheduler: cosine
+  amp: true
+  ema_decay: 0.999
+  freeze_backbone_epochs: 1
+  mixup_alpha: 0.2
+  seed: 42
+  checkpoint_dir: models/checkpoints/convnext
+  log_dir: logs/convnext
+
+inference:
+  mc_dropout_samples: 20
+  tta_hflip: true
