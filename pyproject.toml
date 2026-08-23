@@ -74,6 +74,12 @@ target-version = ["py310"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The `services` package lives at the repo root, not under src/, so it is not
+# covered by the editable install. Without this, bare `pytest` cannot import it
+# (only `python -m pytest` works, because that puts CWD on sys.path) and the
+# whole API suite errors with ModuleNotFoundError. Resolved relative to rootdir,
+# so it works from any working directory.
+pythonpath = ["."]
 addopts = "-q --strict-markers"
 markers = [
   "slow: end-to-end tests that train or serve (deselect with '-m \"not slow\"')",

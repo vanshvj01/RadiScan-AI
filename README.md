@@ -212,6 +212,20 @@ The production topology (Postgres, Redis, a real Celery worker) is
 
 ---
 
+## Deployment
+
+Backend on Hugging Face Spaces (Docker), frontend on Vercel — both free tiers,
+configured and verified in `deploy/`. Step-by-step in
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+One rule, enforced by the pipeline: a checkpoint trained under `data/demo/` is
+stamped `SYNTHETIC-DEMO-…`, and that string surfaces in `/api/v1/health`, the
+results panel and the PDF footer. A public URL that returns clinical-looking
+probabilities from a model trained on generated shapes is not a demo, it is
+misinformation. Deploy a model that has seen radiographs.
+
+---
+
 ## Architecture
 
 ```

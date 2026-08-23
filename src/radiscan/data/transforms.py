@@ -45,10 +45,15 @@ def train_transforms(image_size: int = 320) -> A.Compose:
                 size=(image_size, image_size), scale=(0.85, 1.0), ratio=(0.9, 1.11)
             ),
             A.HorizontalFlip(p=0.5),
-            A.ShiftScaleRotate(
-                shift_limit=0.05,
-                scale_limit=0.1,
-                rotate_limit=10,
+            # Affine, not the deprecated ShiftScaleRotate. Same geometry:
+            # +/-5% translation, +/-10% scale, +/-10 degrees. Rotation stays
+            # small on purpose -- a chest radiograph is acquired in a
+            # standardised position, so large rotations are not augmentation,
+            # they are images the model will never see at inference.
+            A.Affine(
+                translate_percent=(-0.05, 0.05),
+                scale=(0.9, 1.1),
+                rotate=(-10, 10),
                 border_mode=cv2.BORDER_CONSTANT,
                 p=0.7,
             ),

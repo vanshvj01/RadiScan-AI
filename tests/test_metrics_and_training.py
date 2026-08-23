@@ -171,6 +171,7 @@ def test_cosine_scheduler_warms_up_then_decays():
     lrs = []
     for _ in range(50):
         lrs.append(opt.param_groups[0]["lr"])
+        opt.step()  # before sched.step(), or PyTorch warns and skips the first LR
         sched.step()
     assert lrs[0] < lrs[5]
     assert lrs[-1] < lrs[5]

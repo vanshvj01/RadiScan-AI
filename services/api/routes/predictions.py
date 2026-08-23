@@ -39,6 +39,12 @@ from services.api.schemas.schemas import (
     StatusOut,
 )
 
+# Starlette renamed HTTP_413_REQUEST_ENTITY_TOO_LARGE to HTTP_413_CONTENT_TOO_LARGE
+# and warns on the old name. A getattr() fallback does not help -- its default is
+# evaluated eagerly, so the deprecated attribute is touched either way. The bare
+# integer is what both constants hold and works on every version.
+HTTP_413 = 413
+
 router = APIRouter(prefix="/predict", tags=["predictions"])
 settings = get_settings()
 
@@ -94,7 +100,7 @@ async def upload(
                 out.close()
                 dest.unlink(missing_ok=True)
                 raise HTTPException(
-                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    HTTP_413,
                     f"File exceeds {settings.max_upload_mb} MB",
                 )
             out.write(chunk)

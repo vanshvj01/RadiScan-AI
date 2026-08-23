@@ -25,7 +25,15 @@ class Settings(BaseSettings):
     version: str = "2.0.0"
     debug: bool = False
     api_prefix: str = "/api/v1"
-    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    # Comma-separated in the environment:
+    #   CORS_ORIGINS=https://radiscan.vercel.app,http://localhost:3000
+    # A deployed frontend on another origin is blocked by the browser unless it
+    # is listed here, so this has to be configurable rather than hardcoded.
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     # -- security ----------------------------------------------------------
     secret_key: str = ""

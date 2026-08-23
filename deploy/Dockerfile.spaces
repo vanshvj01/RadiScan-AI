@@ -1,0 +1,62 @@
+# RadiScan API on Hugging Face Spaces (Docker SDK).
+#
+# Spaces-specific constraints this file works around:
+#   * the container must listen on port 7860
+#   * it runs as UID 1000, and only $HOME is writable -- so uploads, heatmaps
+#     and the SQLite file all have to live under /home/user, not /app
+#   * storage is EPHEMERAL. Every restart wipes the database and uploads. That
+#     is acceptable for a demo; it is stated in the UI rather than hidden.
+#
+# Build locally to check it before pushing:
+#   docker build -f deploy/Dockerfile.spaces -t radiscan-api .
+#   docker run -p 7860:7860 -e SECRET_KEY=dev radiscan-api
+
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgl1 libglib2.0-0 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Spaces runs as UID 1000 named "user".
+RUN useradd -m -u 1000 user
+WORKDIR /app
+
+# CPU-only torch: the CUDA build is ~2.5 GB and a free Space has no GPU.
+COPY requirements.txt .
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision \
+ && pip install -r requirements.txt
+
+COPY pyproject.toml README.md conftest.py ./
+COPY src ./src
+COPY services ./services
+COPY configs ./configs
+RUN pip install --no-deps -e .
+
+# The checkpoint is bind-mounted or committed via git-lfs into models/.
+COPY models ./models
+
+RUN chown -R user:user /app
+USER user
+ENV HOME=/home/user
+
+# Writable paths under $HOME -- /app is read-only for UID 1000 on Spaces.
+ENV UPLOAD_DIR=/home/user/data/uploads \
+    HEATMAP_DIR=/home/user/data/heatmaps \
+    DATABASE_URL=sqlite:////home/user/radiscan.db \
+    CHECKPOINT_PATH=/app/models/checkpoints/best_model.pth \
+    CELERY_EAGER=true \
+    DEVICE=cpu \
+    MC_DROPOUT_SAMPLES=20 \
+    PORT=7860
+
+RUN mkdir -p /home/user/data/uploads /home/user/data/heatmaps
+
+EXPOSE 7860
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s \
+  CMD curl -fsS http://localhost:7860/api/v1/health/live || exit 1
+
+CMD ["uvicorn", "services.api.main:app", "--host", "0.0.0.0", "--port", "7860"]

@@ -108,13 +108,27 @@ def main(argv: list[str] | None = None) -> int:
     rows = per_class_metrics(targets, probs, labels, thresholds=thresholds, mask=mask)
     summary = summarize(rows)
 
+    # A checkpoint trained on synthetic data must carry that fact in its own
+    # model_version, because that string is what the UI, the API response and
+    # the PDF report all display. Without it, a model that has never seen a
+    # radiograph is indistinguishable from a real one to anyone reading the
+    # output -- which matters the moment the API is reachable by anybody else.
+    model_version = f"{cfg.model.backbone}-{meta.get('epoch', '?')}ep"
+    if "demo" in Path(cfg.data.data_dir).parts:
+        model_version = f"SYNTHETIC-DEMO-{model_version}"
+        log.warning(
+            "Training data is synthetic; stamping the checkpoint as %r so its "
+            "output can never be mistaken for a real prediction.",
+            model_version,
+        )
+
     best_model.save(
         best_path,
         epoch=meta.get("epoch"),
         metrics={**summary, **calib},
         thresholds=thresholds,
         config=cfg.to_dict(),
-        model_version=f"{cfg.model.backbone}-{meta.get('epoch', '?')}ep",
+        model_version=model_version,
     )
     Path(cfg.train.log_dir).mkdir(parents=True, exist_ok=True)
     (Path(cfg.train.log_dir) / "final_summary.json").write_text(
