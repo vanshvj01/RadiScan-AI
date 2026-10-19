@@ -35,3 +35,8 @@ web/.env.local
 .DS_Store
 .idea/
 .vscode/
+
+# paper build artefacts
+paper/node_modules/
+paper/out/*.pdf
+paper/out/_*

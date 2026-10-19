@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from radiscan.data.enhance import enhance
 from radiscan.data.loader import load_image
 from radiscan.data.transforms import apply_clahe, eval_transforms
 from radiscan.models.network import RadiScanNet, load_model
@@ -56,14 +57,36 @@ class RadiScanPredictor:
             f"{self.model.backbone_name}-{self.meta.get('epoch', '?')}ep-v{self.meta.get('radiscan_version', '2')}",
         )
         self.transform = eval_transforms(self.image_size)
+        # Apply to model input only what this checkpoint was trained with.
+        # Checkpoints from before the clean-up step existed carry no flag and
+        # keep their original behaviour.
+        self.auto_crop = bool(
+            (self.meta.get("config") or {}).get("data", {}).get("auto_crop", False)
+        )
         self.reporter = ReportGenerator(thresholds=self.thresholds)
 
     # -- preprocessing -------------------------------------------------------
     def prepare(self, source: str | Path | bytes, filename: str | None = None):
+        """Return (model_view, tensor, meta, display).
+
+        ``model_view`` is the image exactly as the model saw it, before CLAHE and
+        normalisation -- Grad-CAM must be overlaid on this, not on the upload,
+        or a cropped scan's saliency lands in the wrong place.
+        ``display`` is the cleaned-up image shown to the reader: cropped,
+        denoised and contrast-enhanced, at display resolution.
+        """
         raw, meta = load_image(source, filename=filename)
-        enhanced = apply_clahe(raw)
-        tensor = self.transform(image=enhanced)["image"].unsqueeze(0).to(self.device)
-        return raw, tensor, meta
+        model_view = (
+            enhance(raw, reduce_noise=False, max_side=None).image if self.auto_crop else raw
+        )
+        tensor = self.transform(image=apply_clahe(model_view))["image"].unsqueeze(0).to(self.device)
+
+        cleaned = enhance(raw, reduce_noise=True, max_side=1024)
+        display = {
+            "image": apply_clahe(cleaned.image),
+            "steps": cleaned.steps + ["enhanced contrast (CLAHE)"],
+        }
+        return model_view, tensor, meta, display
 
     # -- prediction ----------------------------------------------------------
     def predict(
@@ -76,7 +99,7 @@ class RadiScanPredictor:
         scan_id: str = "unsaved",
     ) -> dict[str, Any]:
         t0 = time.perf_counter()
-        raw_image, tensor, image_meta = self.prepare(source, filename)
+        raw_image, tensor, image_meta, display = self.prepare(source, filename)
 
         unc = predict_with_uncertainty(
             self.model,
@@ -109,6 +132,9 @@ class RadiScanPredictor:
                 }
             )
 
+        if heatmap_dir is not None:
+            self._save_enhanced(display, Path(heatmap_dir) / str(scan_id))
+
         heatmaps: dict[str, str] = {}
         if explain:
             heatmaps = self._explain(tensor, raw_image, mean, heatmap_dir, top_k_heatmaps, scan_id)
@@ -140,9 +166,34 @@ class RadiScanPredictor:
             },
             "risk_level": report.risk_level,
             "heatmaps": heatmaps,
+            "preprocessing": {
+                "steps": display["steps"],
+                "applied_to_model_input": self.auto_crop,
+            },
             "report": report,
             "inference_ms": round(inference_ms, 1),
         }
+
+    # -- clean-up view -------------------------------------------------------
+    @staticmethod
+    def _save_enhanced(display: dict[str, Any], target_dir: Path) -> None:
+        """Store the cleaned-up image and the list of steps beside the heatmaps.
+
+        Leading underscore: label-derived file names never start with one, so
+        these can never collide with a finding's heatmap.
+        """
+        try:
+            import json
+
+            import cv2
+
+            target_dir.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(
+                str(target_dir / "_enhanced.png"), cv2.cvtColor(display["image"], cv2.COLOR_RGB2BGR)
+            )
+            (target_dir / "_enhanced.json").write_text(json.dumps({"steps": display["steps"]}))
+        except Exception as exc:  # a display aid must never fail a prediction
+            log.warning("Could not save enhanced image: %s", exc)
 
     # -- explainability ------------------------------------------------------
     def _explain(

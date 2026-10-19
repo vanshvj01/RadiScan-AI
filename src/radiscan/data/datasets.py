@@ -25,6 +25,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from radiscan.constants import CHESTXRAY14_LABELS, CHEXPERT_LABELS, get_labels
+from radiscan.data.enhance import enhance
 from radiscan.data.loader import ImageLoadError, load_image
 from radiscan.data.transforms import apply_clahe, eval_transforms, train_transforms
 from radiscan.utils.seed import worker_init_fn
@@ -61,6 +62,7 @@ class ChestXrayDataset(Dataset):
         lsr_high: float = 0.85,
         max_images: int | None = None,
         use_clahe: bool = True,
+        auto_crop: bool = False,
         frontal_only: bool = False,
         path_column: str | None = None,
         seed: int = 42,
@@ -73,6 +75,7 @@ class ChestXrayDataset(Dataset):
         self.lsr_low = lsr_low
         self.lsr_high = lsr_high
         self.use_clahe = use_clahe
+        self.auto_crop = auto_crop
         self._missing = 0
 
         df = pd.read_csv(csv_path)
@@ -164,6 +167,13 @@ class ChestXrayDataset(Dataset):
                 ) from None
             log.warning("Missing image %s (%d so far); substituting blank.", path, self._missing)
             image = np.zeros((512, 512, 3), dtype=np.uint8)
+
+        if self.auto_crop:
+            # Geometry only. Denoising is deliberately not applied to model
+            # input: the resize to image_size already averages away pixel noise,
+            # and denoising every training image would make the data loader,
+            # not the GPU, the bottleneck.
+            image = enhance(image, reduce_noise=False, max_side=None).image
 
         if self.use_clahe:
             image = apply_clahe(image)
@@ -291,6 +301,7 @@ def build_dataloaders(cfg, verify: bool = True) -> dict[str, Any]:
         lsr_low=cfg.data.lsr_low,
         lsr_high=cfg.data.lsr_high,
         frontal_only=cfg.data.frontal_only,
+        auto_crop=cfg.data.auto_crop,
         strict=True,
     )
 

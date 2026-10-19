@@ -14,7 +14,7 @@ from services.api.core.security import (
     verify_password,
 )
 from services.api.core.settings import get_settings
-from services.api.db.models import AuditLog, User
+from services.api.db.models import AuditLog, Role, User
 from services.api.db.session import get_db
 from services.api.schemas.schemas import RefreshRequest, TokenPair, UserCreate, UserOut
 
@@ -49,7 +49,7 @@ def register(payload: UserCreate, request: Request, db: Session = Depends(get_db
         email=payload.email,
         hashed_password=hash_password(payload.password),
         full_name=payload.full_name,
-        role=payload.role,
+        role=Role(payload.role),
     )
     db.add(user)
     db.commit()

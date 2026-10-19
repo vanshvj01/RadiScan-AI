@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { AuthGate } from '@/components/AuthGate';
+import { AuthGate, useMe } from '@/components/AuthGate';
 import { HeatmapViewer } from '@/components/HeatmapViewer';
+import { PatientHistoryPanel } from '@/components/PatientHistoryPanel';
+import { PatientsPanel } from '@/components/PatientsPanel';
 import { ResultsPanel } from '@/components/ResultsPanel';
+import { SharingPanel } from '@/components/SharingPanel';
 import { UploadPanel } from '@/components/UploadPanel';
-import { api, type Health, type PredictionResult, type Scan } from '@/lib/api';
+import { api, isClinician, type Health, type PredictionResult, type Scan } from '@/lib/api';
 
 export default function Page() {
   return (
@@ -17,7 +20,11 @@ export default function Page() {
 }
 
 function Dashboard() {
+  const me = useMe();
+  const doctor = isClinician(me.role);
   const [result, setResult] = useState<PredictionResult | null>(null);
+  // Doctor: a patient opened from "My patients", shown when no scan is open.
+  const [patientView, setPatientView] = useState<number | null>(null);
   const [scans, setScans] = useState<Scan[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
 
@@ -38,13 +45,22 @@ function Dashboard() {
     refresh();
   }
 
-  async function open(scan: Scan) {
-    if (scan.status !== 'completed') return;
+  async function openScan(scanId: number) {
     try {
-      setResult(await api.results(scan.id));
+      setResult(await api.results(scanId));
     } catch {
       /* surfaced by the row's status badge */
     }
+  }
+
+  async function open(scan: Scan) {
+    if (scan.status !== 'completed') return;
+    await openScan(scan.id);
+  }
+
+  function openPatient(patientId: number) {
+    setResult(null);
+    setPatientView(patientId);
   }
 
   async function remove(scan: Scan) {
@@ -65,9 +81,17 @@ function Dashboard() {
         <div className="space-y-6">
           <UploadPanel onResult={onResult} />
 
+          {doctor ? (
+            <PatientsPanel onOpen={openPatient} selectedId={result ? null : patientView} />
+          ) : (
+            <SharingPanel />
+          )}
+
           <div className="card">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Recent studies</h2>
+              <h2 className="text-sm font-semibold">
+                {doctor ? 'Recent studies' : 'My studies'}
+              </h2>
               <button className="text-xs text-slate-500 underline" onClick={refresh}>
                 Refresh
               </button>
@@ -86,15 +110,20 @@ function Dashboard() {
                       <span className="block truncate">{s.filename}</span>
                       <span className="text-xs text-slate-400">
                         {new Date(s.created_at).toLocaleString()} · {s.status}
+                        {doctor && s.patient_username && ` · @${s.patient_username}`}
+                        {!doctor && s.uploaded_by && s.uploaded_by !== me.username &&
+                          ` · by @${s.uploaded_by}`}
                       </span>
                     </button>
-                    <button
-                      className="text-xs text-slate-400 hover:text-red-600"
-                      onClick={() => remove(s)}
-                      aria-label={`Delete ${s.filename}`}
-                    >
-                      Delete
-                    </button>
+                    {s.uploaded_by === me.username && (
+                      <button
+                        className="text-xs text-slate-400 hover:text-red-600"
+                        onClick={() => remove(s)}
+                        aria-label={`Delete ${s.filename}`}
+                      >
+                        Delete
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -132,8 +161,23 @@ function Dashboard() {
           {result ? (
             <>
               <ResultsPanel result={result} />
-              <HeatmapViewer scanId={result.scan_id} findings={result.findings} />
+              {result.patient_id !== null && (
+                <PatientHistoryPanel
+                  patientId={result.patient_id}
+                  currentScanId={result.scan_id}
+                  currentFindings={result.findings}
+                  onOpen={openScan}
+                />
+              )}
+              <HeatmapViewer
+                scanId={result.scan_id}
+                findings={result.findings}
+                enhancedUrl={result.enhanced_url}
+                enhancementSteps={result.enhancement_steps}
+              />
             </>
+          ) : doctor && patientView !== null ? (
+            <PatientHistoryPanel patientId={patientView} onOpen={openScan} />
           ) : (
             <div className="card flex min-h-[300px] items-center justify-center">
               <p className="max-w-sm text-center text-sm text-slate-500">

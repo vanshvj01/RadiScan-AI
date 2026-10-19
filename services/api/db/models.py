@@ -29,8 +29,15 @@ class Base(DeclarativeBase):
 
 class Role(str, enum.Enum):
     admin = "admin"
-    radiologist = "radiologist"
+    radiologist = "radiologist"  # pre-dates the doctor/patient split; treated as a doctor
     viewer = "viewer"
+    doctor = "doctor"
+    patient = "patient"
+
+
+# Roles that act as clinicians. What a clinician may see is still decided by
+# consent (AccessGrant), never by the role alone -- see services/api/core/access.py.
+CLINICIAN_ROLES = frozenset({Role.doctor, Role.radiologist, Role.admin})
 
 
 class ScanStatus(str, enum.Enum):
@@ -52,7 +59,17 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    scans: Mapped[list[Scan]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    scans: Mapped[list[Scan]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", foreign_keys="Scan.user_id"
+    )
+
+    @property
+    def is_clinician(self) -> bool:
+        return self.role in CLINICIAN_ROLES
+
+    @property
+    def is_patient(self) -> bool:
+        return self.role == Role.patient
 
 
 class Scan(Base):
@@ -60,7 +77,12 @@ class Scan(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     uuid: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    # Who uploaded the scan...
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    # ...and whose history it belongs to. Null for a doctor's unlinked upload.
+    patient_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
 
     filename: Mapped[str] = mapped_column(String(255))
     stored_path: Mapped[str] = mapped_column(String(512))
@@ -80,7 +102,17 @@ class Scan(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    user: Mapped[User] = relationship(back_populates="scans")
+    user: Mapped[User] = relationship(back_populates="scans", foreign_keys=[user_id])
+    patient: Mapped[User | None] = relationship(foreign_keys=[patient_id])
+
+    @property
+    def patient_username(self) -> str | None:
+        return self.patient.username if self.patient else None
+
+    @property
+    def uploaded_by(self) -> str | None:
+        return self.user.username if self.user else None
+
     prediction: Mapped[Prediction | None] = relationship(
         back_populates="scan", cascade="all, delete-orphan", uselist=False
     )
@@ -133,6 +165,29 @@ class Report(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     prediction: Mapped[Prediction] = relationship(back_populates="report")
+
+
+class AccessGrant(Base):
+    """A patient's consent for one doctor to see their scan history.
+
+    Rows are never deleted: revoking sets ``revoked_at``, so the audit trail can
+    always answer "who could see this patient's history, and when".
+    """
+
+    __tablename__ = "access_grants"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    patient: Mapped[User] = relationship(foreign_keys=[patient_id])
+    doctor: Mapped[User] = relationship(foreign_keys=[doctor_id])
+
+    @property
+    def active(self) -> bool:
+        return self.revoked_at is None
 
 
 class AuditLog(Base):

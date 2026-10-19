@@ -1,0 +1,89 @@
+# CheXpert on a 6 GB GPU (RTX 4050 / 3050 / 2060 laptop class).
+#
+# Batch size here is measured, not guessed. On an RTX 4050 Laptop (6.44 GB
+# usable) `python scripts/vram_probe.py` reports:
+#
+#     batch 16 -> 2.29 GB     batch 32 -> 4.46 GB     batch 64 -> 8.86 GB
+#
+# So batch 32 fits natively at 69% of VRAM and needs no gradient accumulation.
+# That leaves ~2 GB for the AdamW moment buffers, the EMA shadow copy and the
+# desktop compositor.
+#
+# The batch-64 figure is the interesting one: 8.86 GB on a 6.44 GB card did not
+# raise OutOfMemoryError. Windows WDDM enables CUDA system-memory fallback by
+# default, so an oversized batch silently spills into system RAM over PCIe and
+# keeps running at a fraction of the speed. "It did not crash" is not evidence
+# that a batch size fits -- check peak allocation against physical VRAM.
+#
+# Re-run the probe if you change backbone or image_size; both move this number
+# a lot.
+#
+# Expected: ~4.5 GB VRAM, roughly 4-7 min/epoch on 20k images. A 25-epoch run
+# is an overnight job.
+#
+# Close Chrome/Brave before training. Windows WDDM lets the browser hold
+# several hundred MB of VRAM, and on a 6 GB card that is the difference between
+# fitting and an OOM two hours in.
+
+data:
+  dataset: chexpert
+  data_dir: data/raw/chexpert
+  train_csv: data/splits/train.csv
+  val_csv: data/splits/val.csv
+  test_csv: data/splits/test.csv
+  image_size: 320
+  uncertain_policy: lsr
+  lsr_low: 0.05
+  lsr_high: 0.85
+  max_train_images: null
+  max_val_images: null
+  # Windows spawns (not forks) dataloader workers, so each one re-imports the
+  # module. The CLI has an __main__ guard so this is safe -- but if you see
+  # "spawn" or pickling errors, set this to 0. It costs throughput, not
+  # correctness.
+  num_workers: 4
+  balanced_sampling: true
+  frontal_only: true
+
+model:
+  backbone: densenet121
+  pretrained: true
+  use_transformer: false
+  dropout: 0.2
+  fracture_head: true
+  confidence_head: true
+
+loss:
+  kind: asl
+  asl_gamma_neg: 4.0
+  asl_gamma_pos: 0.0
+  asl_clip: 0.05
+  pos_weight: true
+  disease_weight: 1.0
+  fracture_weight: 0.3
+
+train:
+  epochs: 25
+  batch_size: 32         # measured: 4.46 GB peak, 69% of a 6.44 GB card
+  accumulate_steps: 1    # fits natively, so no accumulation needed
+  lr: 0.0001
+  head_lr_mult: 10.0
+  weight_decay: 0.0001
+  warmup_epochs: 2
+  scheduler: cosine
+  amp: true              # essential here -- fp16 roughly halves activation memory
+  ema_decay: 0.999
+  grad_clip: 5.0
+  early_stopping_patience: 6
+  freeze_backbone_epochs: 1
+  mixup_alpha: 0.2
+  seed: 42
+  checkpoint_dir: models/checkpoints
+  log_dir: logs
+  monitor: val_mean_auc
+
+inference:
+  mc_dropout_samples: 20
+  tta_hflip: true
+  temperature: null
+  thresholds: {}

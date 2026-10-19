@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { api, type PredictionResult, type ReportPayload, type RiskLevel } from '@/lib/api';
 import { FindingRow } from './FindingRow';
 
-const RISK_STYLES: Record<RiskLevel, string> = {
+export const RISK_STYLES: Record<RiskLevel, string> = {
   low: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
   moderate: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300',
   high: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300',

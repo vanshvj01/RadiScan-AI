@@ -83,3 +83,68 @@ def xray_png(tmp_path):
     rng = np.random.default_rng(1)
     cv2.imwrite(str(path), rng.integers(0, 255, (256, 256, 3), dtype=np.uint8))
     return path
+
+
+# --- API fixtures: shared by test_api.py and test_sharing.py -----------------
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    """The whole API in-process: real SQLite, untrained model, no Redis."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
+    monkeypatch.setenv("SECRET_KEY", "test-secret-key-not-for-production-use-1234")
+    monkeypatch.setenv("DEBUG", "true")
+    monkeypatch.setenv("ALLOW_UNTRAINED", "true")
+    # Point at a path that cannot exist, so these tests always exercise the
+    # untrained-demo path. Without this, a real checkpoint left in the default
+    # location by scripts/demo.py silently changes what is under test.
+    monkeypatch.setenv("CHECKPOINT_PATH", str(tmp_path / "no-such-checkpoint.pth"))
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setenv("HEATMAP_DIR", str(tmp_path / "heatmaps"))
+    monkeypatch.setenv("CELERY_EAGER", "true")
+    monkeypatch.setenv("MC_DROPOUT_SAMPLES", "3")
+
+    from services.api.core import model_registry
+    from services.api.core import settings as settings_mod
+
+    settings_mod.get_settings.cache_clear()
+    model_registry.reset()
+
+    # Modules that snapshot settings or the engine at import time must be
+    # reloaded, in dependency order, so the test env vars actually take effect.
+    import importlib
+
+    import services.api.core.tasks as tasks_mod
+    import services.api.main as main_mod
+    from services.api.db import session as session_mod
+    from services.api.routes import auth as auth_mod
+    from services.api.routes import health as health_mod
+    from services.api.routes import predictions as pred_mod
+    from services.api.routes import reports as reports_mod
+    from services.api.routes import sharing as sharing_mod
+
+    for mod in (
+        session_mod,
+        tasks_mod,
+        auth_mod,
+        pred_mod,
+        reports_mod,
+        sharing_mod,
+        health_mod,
+        main_mod,
+    ):
+        importlib.reload(mod)
+
+    with TestClient(main_mod.app) as c:
+        yield c
+
+
+@pytest.fixture
+def png_bytes():
+    import cv2
+
+    arr = np.random.default_rng(0).integers(0, 255, (256, 256, 3), dtype=np.uint8)
+    ok, buf = cv2.imencode(".png", arr)
+    assert ok
+    return buf.tobytes()

@@ -27,7 +27,10 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 
 
 def create_tables() -> None:
+    from services.api.db.migrate import upgrade
+
     Base.metadata.create_all(bind=engine)
+    upgrade(engine)
 
 
 def get_db() -> Generator[Session, None, None]:

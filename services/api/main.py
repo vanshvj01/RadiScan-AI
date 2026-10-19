@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 
 from services.api.core.settings import get_settings
 from services.api.db.session import create_tables
-from services.api.routes import auth, health, predictions, reports, websocket
+from services.api.routes import auth, health, predictions, reports, sharing, websocket
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,7 +88,7 @@ async def missing_checkpoint_handler(request: Request, exc: FileNotFoundError):
     )
 
 
-for router in (auth.router, predictions.router, reports.router, health.router):
+for router in (auth.router, predictions.router, reports.router, sharing.router, health.router):
     app.include_router(router, prefix=settings.api_prefix)
 app.include_router(websocket.router)
 

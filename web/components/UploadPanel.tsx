@@ -1,10 +1,27 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import { api, waitForScan, type PredictionResult, type ScanStatus } from '@/lib/api';
+import {
+  api,
+  isClinician,
+  waitForScan,
+  type Grant,
+  type PredictionResult,
+  type ScanStatus,
+} from '@/lib/api';
+import { useMe } from './AuthGate';
 
 export function UploadPanel({ onResult }: { onResult: (r: PredictionResult) => void }) {
+  const me = useMe();
+  const doctor = isClinician(me.role);
+  const [patients, setPatients] = useState<Grant[]>([]);
+  const [patientUsername, setPatientUsername] = useState('');
+
+  useEffect(() => {
+    if (doctor) api.grants().then(setPatients).catch(() => setPatients([]));
+  }, [doctor]);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -32,6 +49,7 @@ export function UploadPanel({ onResult }: { onResult: (r: PredictionResult) => v
     setProgress(5);
     try {
       const { scan_id } = await api.upload(file, {
+        patient_username: doctor ? patientUsername : undefined,
         patient_ref: patientRef,
         patient_age: age,
         patient_sex: sex,
@@ -91,19 +109,46 @@ export function UploadPanel({ onResult }: { onResult: (r: PredictionResult) => v
         />
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-3">
-        <div>
-          <label className="label" htmlFor="pref">
-            Patient ref
+      {doctor && (
+        <div className="mt-4">
+          <label className="label" htmlFor="ppat">
+            Patient
           </label>
-          <input
-            id="pref"
+          <select
+            id="ppat"
             className="input"
-            value={patientRef}
-            onChange={(e) => setPatientRef(e.target.value)}
-            placeholder="anonymised"
-          />
+            value={patientUsername}
+            onChange={(e) => setPatientUsername(e.target.value)}
+          >
+            <option value="">Not linked to a patient account</option>
+            {patients.map((g) => (
+              <option key={g.id} value={g.patient_username}>
+                {g.patient_name || g.patient_username} (@{g.patient_username})
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-500">
+            Only patients who have shared their history with you are listed. A linked scan is added
+            to that patient&apos;s history.
+          </p>
         </div>
+      )}
+
+      <div className={`mt-4 grid gap-3 ${doctor && !patientUsername ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        {doctor && !patientUsername && (
+          <div>
+            <label className="label" htmlFor="pref">
+              Patient ref
+            </label>
+            <input
+              id="pref"
+              className="input"
+              value={patientRef}
+              onChange={(e) => setPatientRef(e.target.value)}
+              placeholder="anonymised"
+            />
+          </div>
+        )}
         <div>
           <label className="label" htmlFor="page">
             Age
@@ -130,8 +175,10 @@ export function UploadPanel({ onResult }: { onResult: (r: PredictionResult) => v
       </div>
 
       <p className="mt-3 text-xs text-slate-500">
-        Use an anonymised reference, not a real patient identifier. DICOM tags are not stripped on
-        upload.
+        {doctor
+          ? 'For unlinked scans, use an anonymised reference, not a real identifier. '
+          : 'This scan will be added to your history. '}
+        DICOM tags are not stripped on upload.
       </p>
 
       <button className="btn-primary mt-4 w-full" disabled={!file || busy} onClick={submit}>

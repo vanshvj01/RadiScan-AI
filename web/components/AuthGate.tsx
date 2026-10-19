@@ -1,11 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 
-import { api, auth } from '@/lib/api';
+import { api, auth, isClinician, type Me } from '@/lib/api';
+
+const MeContext = createContext<Me | null>(null);
+
+/** The signed-in user. Only valid inside <AuthGate>. */
+export function useMe(): Me {
+  const me = useContext(MeContext);
+  if (!me) throw new Error('useMe() used outside <AuthGate>');
+  return me;
+}
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<string | null>(null);
+  const [user, setUser] = useState<Me | null>(null);
+  const [role, setRole] = useState<'doctor' | 'patient'>('patient');
+  const [fullName, setFullName] = useState('');
   const [checking, setChecking] = useState(true);
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
@@ -21,7 +32,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
     api
       .me()
-      .then((u) => setUser(u.username))
+      .then(setUser)
       .catch(() => auth.clear())
       .finally(() => setChecking(false));
   }, []);
@@ -31,10 +42,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     setBusy(true);
     setError(null);
     try {
-      if (mode === 'register') await api.register(username, email, password);
+      if (mode === 'register') await api.register(username, email, password, role, fullName);
       else await api.login(username, password);
-      const u = await api.me();
-      setUser(u.username);
+      setUser(await api.me());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed');
     } finally {
@@ -55,6 +65,35 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         </p>
 
         <form onSubmit={submit} className="card mt-6 space-y-3">
+          {mode === 'register' && (
+            <div>
+              <span className="label">I am a</span>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Account type">
+                {(['patient', 'doctor'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    role="radio"
+                    aria-checked={role === r}
+                    onClick={() => setRole(r)}
+                    className={`rounded-lg border px-3 py-2 text-sm capitalize transition ${
+                      role === r
+                        ? 'border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900'
+                        : 'border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                {role === 'patient'
+                  ? 'Keep your scan history and choose which doctors can see it.'
+                  : 'See the history of patients who share it with you.'}
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="label" htmlFor="u">
               Username
@@ -68,6 +107,21 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               required
             />
           </div>
+
+          {mode === 'register' && (
+            <div>
+              <label className="label" htmlFor="n">
+                Full name
+              </label>
+              <input
+                id="n"
+                className="input"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                autoComplete="name"
+              />
+            </div>
+          )}
 
           {mode === 'register' && (
             <div>
@@ -130,7 +184,18 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           <p className="text-xs text-slate-500">Decision support prototype — not a diagnostic device</p>
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-slate-500">{user}</span>
+          <span className="text-slate-500">
+            {user.full_name || user.username}
+            <span
+              className={`ml-2 rounded-full px-2 py-0.5 text-xs font-medium ${
+                isClinician(user.role)
+                  ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200'
+                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+              }`}
+            >
+              {isClinician(user.role) ? 'Doctor' : 'Patient'}
+            </span>
+          </span>
           <button
             className="btn-ghost"
             onClick={() => {
@@ -142,7 +207,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </header>
-      {children}
+      <MeContext.Provider value={user}>{children}</MeContext.Provider>
     </>
   );
 }

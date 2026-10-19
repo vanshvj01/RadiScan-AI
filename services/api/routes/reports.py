@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from services.api.core.access import viewable_scan
 from services.api.core.security import current_user
 from services.api.db.models import Prediction, Report, Scan, User
 from services.api.db.session import get_db
@@ -17,9 +18,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 
 def _report_for(scan_id: int, db: Session, user: User) -> tuple[Scan, Report]:
-    scan = db.get(Scan, scan_id)
-    if scan is None or (scan.user_id != user.id and user.role.value != "admin"):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Scan {scan_id} not found")
+    scan = viewable_scan(scan_id, db, user)
     prediction = db.query(Prediction).filter(Prediction.scan_id == scan.id).first()
     report = (
         db.query(Report).filter(Report.prediction_id == prediction.id).first()

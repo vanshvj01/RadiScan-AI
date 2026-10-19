@@ -8,6 +8,7 @@ real OpenAPI schema instead of guessed at.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -22,7 +23,10 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, description="Minimum 8 characters")
     full_name: str | None = None
-    role: Role = Role.radiologist
+    # Only these two can be chosen at sign-up. Admin is never self-assigned,
+    # and choosing "doctor" grants nothing by itself: a doctor sees a patient's
+    # history only after that patient shares it.
+    role: Literal["doctor", "patient"] = "patient"
 
 
 class UserOut(BaseModel):
@@ -62,6 +66,9 @@ class ScanOut(BaseModel):
     patient_ref: str | None
     patient_age: int | None
     patient_sex: str | None
+    patient_id: int | None = None
+    patient_username: str | None = None
+    uploaded_by: str | None = None
     status: ScanStatus
     error_message: str | None
     created_at: datetime
@@ -112,6 +119,52 @@ class PredictionOut(BaseModel):
     mc_samples: int
     inference_ms: float
     created_at: datetime
+    # Cleaned-up view of the upload (film located, borders cropped, noise
+    # reduced, contrast enhanced) and the steps that produced it.
+    enhanced_url: str | None = None
+    enhancement_steps: list[str] = []
+    # Whose history this scan belongs to, so the client can fetch prior studies.
+    patient_id: int | None = None
+    patient_username: str | None = None
+
+
+# --------------------------------------------------------------------------
+# Sharing and history
+# --------------------------------------------------------------------------
+class GrantCreate(BaseModel):
+    doctor_username: str = Field(min_length=3, max_length=64)
+
+
+class GrantOut(BaseModel):
+    id: int
+    patient_id: int
+    patient_username: str
+    patient_name: str | None
+    doctor_id: int
+    doctor_username: str
+    doctor_name: str | None
+    created_at: datetime
+
+
+class HistoryItem(BaseModel):
+    scan_id: int
+    created_at: datetime
+    filename: str
+    uploaded_by: str
+    status: ScanStatus
+    risk_level: str | None = None
+    top_finding: str | None = None
+    top_probability: float | None = None
+    model_version: str | None = None
+    # Per-finding probabilities, so the client can show change over time.
+    probabilities: dict[str, float] = {}
+
+
+class PatientHistory(BaseModel):
+    patient_id: int
+    patient_username: str
+    patient_name: str | None
+    items: list[HistoryItem]
 
 
 class StatusOut(BaseModel):

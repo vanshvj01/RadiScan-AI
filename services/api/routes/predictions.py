@@ -7,6 +7,7 @@ implemented, so two whole screens were dead.
 
 from __future__ import annotations
 
+import json
 import shutil
 import uuid as uuidlib
 from pathlib import Path
@@ -25,10 +26,11 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from services.api.core.access import can_view_patient, viewable_scan, visible_scans
 from services.api.core.security import current_user
 from services.api.core.settings import get_settings
 from services.api.core.tasks import process_scan
-from services.api.db.models import AuditLog, Prediction, Scan, ScanStatus, User
+from services.api.db.models import AuditLog, Prediction, Role, Scan, ScanStatus, User
 from services.api.db.session import get_db
 from services.api.schemas.schemas import (
     FindingOut,
@@ -57,14 +59,33 @@ PROGRESS = {
 
 
 def _owned_scan(scan_id: int, db: Session, user: User) -> Scan:
-    scan = db.get(Scan, scan_id)
-    if scan is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Scan {scan_id} not found")
-    if scan.user_id != user.id and user.role.value != "admin":
-        # 404 rather than 403: do not confirm that a scan id exists to someone
-        # who is not allowed to see it.
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Scan {scan_id} not found")
-    return scan
+    """A scan this user may *see*. Access rules live in core/access.py."""
+    return viewable_scan(scan_id, db, user)
+
+
+def _resolve_patient(db: Session, user: User, patient_username: str | None) -> int | None:
+    """Whose history a new upload joins.
+
+    A patient's upload always joins their own history. A doctor may attach a
+    scan to a patient only while that patient shares their history with them;
+    without consent, a doctor could write into a stranger's record.
+    """
+    if user.is_patient:
+        return user.id
+    if not patient_username:
+        return None
+    patient = (
+        db.query(User)
+        .filter(User.username == patient_username.strip(), User.role == Role.patient)
+        .first()
+    )
+    if patient is None or not can_view_patient(db, user, patient.id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"{patient_username!r} has not shared their history with you, so a scan "
+            "cannot be added to it. Ask the patient to share access from their account.",
+        )
+    return patient.id
 
 
 @router.post("", response_model=ScanAccepted, status_code=status.HTTP_202_ACCEPTED)
@@ -77,9 +98,11 @@ async def upload(
     patient_ref: str | None = Form(None),
     patient_age: int | None = Form(None),
     patient_sex: str | None = Form(None),
+    patient_username: str | None = Form(None),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> ScanAccepted:
+    patient_id = _resolve_patient(db, user, patient_username)
     ext = Path(file.filename or "").suffix.lower()
     if ext not in settings.allowed_extensions:
         raise HTTPException(
@@ -108,6 +131,7 @@ async def upload(
     scan = Scan(
         uuid=scan_uuid,
         user_id=user.id,
+        patient_id=patient_id,
         filename=file.filename or dest.name,
         stored_path=str(dest),
         file_size=size,
@@ -145,9 +169,7 @@ def list_scans(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> ScanPage:
-    query = db.query(Scan)
-    if user.role.value != "admin":
-        query = query.filter(Scan.user_id == user.id)
+    query = visible_scans(db, user)
     if scan_status is not None:
         query = query.filter(Scan.status == scan_status)
 
@@ -220,6 +242,14 @@ def results(
         )
     findings.sort(key=lambda f: f.probability, reverse=True)
 
+    enhanced_url, steps = None, []
+    if heatmap_dir and (heatmap_dir / "_enhanced.png").exists():
+        enhanced_url = f"{settings.api_prefix}/predict/enhanced/{scan.id}"
+        try:
+            steps = json.loads((heatmap_dir / "_enhanced.json").read_text()).get("steps", [])
+        except (OSError, ValueError):
+            steps = []
+
     return PredictionOut(
         scan_id=scan.id,
         uuid=scan.uuid,
@@ -236,7 +266,23 @@ def results(
         mc_samples=prediction.mc_samples,
         inference_ms=prediction.inference_ms,
         created_at=prediction.created_at,
+        enhanced_url=enhanced_url,
+        enhancement_steps=steps,
+        patient_id=scan.patient_id,
+        patient_username=scan.patient_username,
     )
+
+
+@router.get("/enhanced/{scan_id}")
+def enhanced_image(
+    scan_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)
+) -> FileResponse:
+    """The cleaned-up radiograph: film located, borders cropped, denoised, CLAHE."""
+    scan = _owned_scan(scan_id, db, user)
+    path = Path(scan.heatmap_dir or "") / "_enhanced.png"
+    if not scan.heatmap_dir or not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No enhanced image for this scan")
+    return FileResponse(path, media_type="image/png")
 
 
 @router.get("/heatmap/{scan_id}/{disease}")
@@ -279,6 +325,10 @@ def delete_scan(
     user: User = Depends(current_user),
 ) -> None:
     scan = _owned_scan(scan_id, db, user)
+    # Seeing a scan is not owning it: a doctor with shared access must not be
+    # able to delete a patient's record, nor a patient a doctor's upload.
+    if scan.user_id != user.id and user.role != Role.admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the uploader can delete a scan")
     Path(scan.stored_path).unlink(missing_ok=True)
     if scan.heatmap_dir:
         shutil.rmtree(scan.heatmap_dir, ignore_errors=True)

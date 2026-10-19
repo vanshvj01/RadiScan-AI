@@ -41,6 +41,55 @@ export interface PredictionResult {
   mc_samples: number;
   inference_ms: number;
   created_at: string;
+  /** Cleaned-up view: film located, borders cropped, denoised, contrast-enhanced. */
+  enhanced_url: string | null;
+  enhancement_steps: string[];
+  /** Whose history this scan belongs to; null for a doctor's unlinked upload. */
+  patient_id: number | null;
+  patient_username: string | null;
+}
+
+export type Role = 'doctor' | 'patient' | 'radiologist' | 'admin' | 'viewer';
+
+export interface Me {
+  id: number;
+  username: string;
+  full_name: string | null;
+  role: Role;
+}
+
+/** Doctors, plus the roles that predate the doctor/patient split. */
+export const isClinician = (role: Role) => role !== 'patient' && role !== 'viewer';
+
+export interface Grant {
+  id: number;
+  patient_id: number;
+  patient_username: string;
+  patient_name: string | null;
+  doctor_id: number;
+  doctor_username: string;
+  doctor_name: string | null;
+  created_at: string;
+}
+
+export interface HistoryItem {
+  scan_id: number;
+  created_at: string;
+  filename: string;
+  uploaded_by: string;
+  status: ScanStatus;
+  risk_level: RiskLevel | null;
+  top_finding: string | null;
+  top_probability: number | null;
+  model_version: string | null;
+  probabilities: Record<string, number>;
+}
+
+export interface PatientHistory {
+  patient_id: number;
+  patient_username: string;
+  patient_name: string | null;
+  items: HistoryItem[];
 }
 
 export interface Scan {
@@ -50,6 +99,9 @@ export interface Scan {
   file_size: number;
   file_format: string;
   patient_ref: string | null;
+  patient_id: number | null;
+  patient_username: string | null;
+  uploaded_by: string | null;
   status: ScanStatus;
   error_message: string | null;
   created_at: string;
@@ -167,18 +219,47 @@ export const api = {
     return data;
   },
 
-  async register(username: string, email: string, password: string) {
+  async register(
+    username: string,
+    email: string,
+    password: string,
+    role: 'doctor' | 'patient',
+    full_name?: string,
+  ) {
     await request('/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, email, password }),
+      body: JSON.stringify({ username, email, password, role, full_name: full_name || null }),
     });
     return api.login(username, password);
   },
 
-  me: () => request<{ username: string; role: string }>('/auth/me'),
+  me: () => request<Me>('/auth/me'),
 
-  upload(file: File, meta: { patient_ref?: string; patient_age?: string; patient_sex?: string }) {
+  // -- sharing --------------------------------------------------------------
+  grants: () => request<Grant[]>('/sharing/grants'),
+
+  share: (doctor_username: string) =>
+    request<Grant>('/sharing/grants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doctor_username }),
+    }),
+
+  revoke: (grantId: number) => request<void>(`/sharing/grants/${grantId}`, { method: 'DELETE' }),
+
+  history: (patientId: number) =>
+    request<PatientHistory>(`/sharing/patients/${patientId}/history`),
+
+  upload(
+    file: File,
+    meta: {
+      patient_ref?: string;
+      patient_age?: string;
+      patient_sex?: string;
+      patient_username?: string;
+    },
+  ) {
     const form = new FormData();
     form.append('file', file);
     Object.entries(meta).forEach(([k, v]) => v && form.append(k, v));

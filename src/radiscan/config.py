@@ -27,6 +27,10 @@ class DataConfig:
     num_workers: int = 4
     balanced_sampling: bool = True
     frontal_only: bool = True
+    # Crop away photo backgrounds and empty borders before the model sees the
+    # image (radiscan.data.enhance). Recorded in the checkpoint, so inference
+    # applies exactly what training did.
+    auto_crop: bool = True
 
 
 @dataclass
