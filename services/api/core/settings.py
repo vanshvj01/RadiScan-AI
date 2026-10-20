@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # -- app ---------------------------------------------------------------
     app_name: str = "RadiScan API"
-    version: str = "2.0.0"
+    version: str = "2.1.0"
     debug: bool = False
     api_prefix: str = "/api/v1"
     # Comma-separated in the environment:

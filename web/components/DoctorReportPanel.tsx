@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import {
   api,
+  friendlyError,
   type DoctorReportInput,
   type DoctorReportState,
   type FollowUp,
@@ -42,11 +43,13 @@ export function DoctorReportPanel({
   labels,
   hasPatient,
   onSaved,
+  onStatus,
 }: {
   scanId: number;
   labels: string[];
   hasPatient: boolean;
   onSaved?: () => void;
+  onStatus?: (status: DoctorReportState['status']) => void;
 }) {
   const [state, setState] = useState<DoctorReportState | null>(null);
   const [form, setForm] = useState<DoctorReportInput>(EMPTY);
@@ -54,6 +57,9 @@ export function DoctorReportPanel({
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [summaryKey, setSummaryKey] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
 
   function fill(s: DoctorReportState) {
     const src = s.latest;
@@ -72,14 +78,18 @@ export function DoctorReportPanel({
   useEffect(() => {
     setState(null);
     setError(null);
+    setLoadError(null);
+    setSavedNote(null);
     api
       .doctorReport(scanId)
       .then((s) => {
         setState(s);
         fill(s);
+        onStatus?.(s.status);
       })
-      .catch(() => setState(null));
-  }, [scanId]);
+      .catch((err) => setLoadError(friendlyError(err, 'Could not load the report.')));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanId, attempt]);
 
   async function save(sign: boolean) {
     if (!form.impression.trim()) {
@@ -93,9 +103,19 @@ export function DoctorReportPanel({
       setState(s);
       fill(s);
       setSummaryKey((k) => k + 1);
+      setSavedNote(
+        sign
+          ? form.follow_up_weeks && hasPatient
+            ? `✓ Signed. The patient can now read their summary, and a follow-up reminder was added for ${form.follow_up_weeks} week${form.follow_up_weeks === 1 ? '' : 's'}.`
+            : hasPatient
+              ? '✓ Signed. The patient can now read their summary.'
+              : '✓ Signed.'
+          : '✓ Draft saved. Sign it when you are ready.',
+      );
+      onStatus?.(s.status);
       onSaved?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save');
+      setError(friendlyError(err, 'Could not save the report.'));
     } finally {
       setBusy(false);
     }
@@ -119,6 +139,19 @@ export function DoctorReportPanel({
         : [...f.patient_findings, label],
     }));
 
+  if (loadError) {
+    return (
+      <div className="card">
+        <h2 className="text-sm font-semibold">Step 2 · Write and sign the report</h2>
+        <p className="mt-2 rounded-lg bg-red-50 p-3 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          {loadError}
+        </p>
+        <button className="btn-ghost mt-3" onClick={() => setAttempt((n) => n + 1)}>
+          Try again
+        </button>
+      </div>
+    );
+  }
   if (!state) return <div className="card text-sm text-slate-500">Loading report…</div>;
 
   const latest = state.latest;
@@ -133,7 +166,7 @@ export function DoctorReportPanel({
     <div className="card space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">
-          My report{' '}
+          Step 2 · Write and sign the report{' '}
           <span className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${badge}`}>
             {state.status === 'none' ? 'not started' : state.status}
           </span>
@@ -150,8 +183,9 @@ export function DoctorReportPanel({
       </div>
 
       <p className="text-xs text-slate-500">
-        Pre-filled from the AI draft. Edit freely; signing records your name and time, and editing
-        a signed report creates an amendment that must be signed again.{' '}
+        We pre-filled this from the AI&apos;s draft. Change anything you disagree with, then sign.
+        Signing records your name and the time; editing afterwards creates an amendment you sign
+        again.{' '}
         <button className="underline" onClick={resetToDraft} type="button">
           Reset text to AI draft
         </button>
@@ -267,13 +301,22 @@ export function DoctorReportPanel({
         </fieldset>
       )}
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && (
+        <p role="alert" className="rounded-lg bg-red-50 p-2 text-xs text-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </p>
+      )}
+      {savedNote && !error && (
+        <p role="status" className="text-xs text-green-700 dark:text-green-400">
+          {savedNote}
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         <button className="btn-ghost" disabled={busy} onClick={() => save(false)}>
           Save draft
         </button>
         <button className="btn-primary" disabled={busy} onClick={() => save(true)}>
-          {state.status === 'signed' ? 'Sign amendment' : 'Sign report'}
+          {busy ? 'Saving…' : state.status === 'signed' ? 'Sign amendment' : 'Sign report'}
         </button>
       </div>
 

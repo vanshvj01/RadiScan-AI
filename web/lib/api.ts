@@ -314,6 +314,33 @@ export class ApiError extends Error {
   }
 }
 
+/** The API version whose endpoints this dashboard uses. */
+export const REQUIRED_API_VERSION = '2.1.0';
+
+/** True when `version` is older than `required` (simple x.y.z comparison). */
+export function isOlderVersion(version: string, required = REQUIRED_API_VERSION): boolean {
+  const a = version.split('.').map((n) => parseInt(n, 10) || 0);
+  const b = required.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
+  }
+  return false;
+}
+
+export const OFFLINE_MESSAGE =
+  "Can't reach the RadiScan server. It runs on the project laptop: make sure it is on and " +
+  "'Start RadiScan' is running, then try again.";
+export const OUTDATED_MESSAGE =
+  'The RadiScan server is running an older version that lacks this feature. Restart it ' +
+  "with 'Start RadiScan' on the laptop.";
+
+/** A message a person can act on, for any error thrown by this client. */
+export function friendlyError(err: unknown, fallback = 'Something went wrong. Please try again.') {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
 // -- token handling ---------------------------------------------------------
 export const auth = {
   get token(): string | null {
@@ -346,19 +373,37 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = auth.token;
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
-  const res = await fetch(`${BASE}${path}`, { ...init, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { ...init, headers });
+  } catch {
+    throw new ApiError(0, OFFLINE_MESSAGE);
+  }
 
   if (res.status === 401) {
     auth.clear();
     throw new ApiError(401, 'Session expired. Please sign in again.');
   }
   if (!res.ok) {
+    const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
+    if (!isJson && [404, 502, 503, 504].includes(res.status)) {
+      // An HTML error page from the tunnel, not the API: the laptop is offline.
+      throw new ApiError(0, OFFLINE_MESSAGE);
+    }
     let detail = res.statusText;
     try {
       const body = await res.json();
       detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
     } catch {
       /* non-JSON error body */
+    }
+    // FastAPI's bare "Not Found" means the route does not exist at all, i.e.
+    // the server predates this dashboard. Our own 404s carry a specific message.
+    if (res.status === 404 && detail === 'Not Found') {
+      throw new ApiError(404, OUTDATED_MESSAGE);
+    }
+    if (res.status >= 500) {
+      throw new ApiError(res.status, 'The server hit an error. Please try again in a moment.');
     }
     throw new ApiError(res.status, detail);
   }
@@ -374,11 +419,19 @@ export const api = {
 
   async login(username: string, password: string) {
     const body = new URLSearchParams({ username, password });
-    const res = await fetch(`${BASE}/auth/login`, {
-      method: 'POST',
-      headers: withHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
-      body,
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/auth/login`, {
+        method: 'POST',
+        headers: withHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+        body,
+      });
+    } catch {
+      throw new ApiError(0, OFFLINE_MESSAGE);
+    }
+    if (!(res.headers.get('content-type') ?? '').includes('application/json')) {
+      throw new ApiError(0, OFFLINE_MESSAGE);
+    }
     if (!res.ok) throw new ApiError(res.status, 'Incorrect username or password');
     const data = (await res.json()) as { access_token: string };
     auth.set(data.access_token);

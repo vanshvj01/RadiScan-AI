@@ -16,7 +16,15 @@ import { ReviewStatsCard } from '@/components/ReviewStatsCard';
 import { SharingPanel } from '@/components/SharingPanel';
 import { UploadPanel } from '@/components/UploadPanel';
 import { WorklistPanel } from '@/components/WorklistPanel';
-import { api, isClinician, type Health, type PredictionResult, type Scan } from '@/lib/api';
+import {
+  OFFLINE_MESSAGE,
+  api,
+  isClinician,
+  isOlderVersion,
+  type Health,
+  type PredictionResult,
+  type Scan,
+} from '@/lib/api';
 
 export default function Page() {
   return (
@@ -34,9 +42,23 @@ function Dashboard() {
   const [patientView, setPatientView] = useState<number | null>(null);
   const [scans, setScans] = useState<Scan[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
+  const [offline, setOffline] = useState(false);
   // Bumped after anything that changes the worklist, stats or reminders.
   const [changes, setChanges] = useState(0);
   const changed = useCallback(() => setChanges((n) => n + 1), []);
+
+  const checkHealth = useCallback(() => {
+    api
+      .health()
+      .then((h) => {
+        setHealth(h);
+        setOffline(false);
+      })
+      .catch(() => {
+        setHealth(null);
+        setOffline(true);
+      });
+  }, []);
 
   const refresh = useCallback(() => {
     api
@@ -44,11 +66,11 @@ function Dashboard() {
       .then((page) => setScans(page.items))
       .catch(() => setScans([]));
     setChanges((n) => n + 1);
-  }, []);
+    checkHealth();
+  }, [checkHealth]);
 
   useEffect(() => {
     refresh();
-    api.health().then(setHealth).catch(() => setHealth(null));
   }, [refresh]);
 
   function onResult(r: PredictionResult) {
@@ -82,6 +104,21 @@ function Dashboard() {
 
   return (
     <main className="space-y-6">
+      {offline && (
+        <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-900 dark:bg-red-950 dark:text-red-200">
+          <strong>Server offline.</strong> {OFFLINE_MESSAGE}{' '}
+          <button className="underline" onClick={refresh}>
+            Try again
+          </button>
+        </div>
+      )}
+      {health && isOlderVersion(health.version) && (
+        <div role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <strong>The RadiScan server is out of date</strong> (v{health.version}). Reviews,
+          signed reports and other new features will not work until it is restarted: close the
+          black RadiScan windows on the laptop and run <em>Start RadiScan</em> again.
+        </div>
+      )}
       {health && !health.model_loaded && (
         <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
           <strong>No trained model loaded.</strong> {health.warnings[0]}

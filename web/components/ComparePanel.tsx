@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { ApiError, api, type Comparison, type Trend } from '@/lib/api';
+import { api, type Comparison, type Trend } from '@/lib/api';
 
 const TREND_STYLE: Record<Trend, string> = {
   new: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
@@ -58,9 +58,9 @@ export function ComparePanel({ scanId }: { scanId: number }) {
     api
       .compare(scanId)
       .then(setCmp)
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 404) setNone(true);
-      });
+      // No earlier study (404) or any other failure: the comparison is an extra,
+      // so hide it rather than leave a spinner on screen.
+      .catch(() => setNone(true));
   }, [scanId]);
 
   const row = cmp?.rows.find((r) => r.label === layer);
