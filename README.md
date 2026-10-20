@@ -214,9 +214,16 @@ The production topology (Postgres, Redis, a real Celery worker) is
 
 ## Deployment
 
-Backend on Hugging Face Spaces (Docker), frontend on Vercel — both free tiers,
-configured and verified in `deploy/`. Step-by-step in
-**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+**Live demo:** dashboard at **https://radiscan-ai.vercel.app**, API served from
+the author's laptop GPU through a fixed ngrok address
+(`https://splicing-ahoy-reunite.ngrok-free.dev`). Start it with
+`scripts\start-radiscan-online.bat`; the site works only while that is running.
+
+Why not a hosted backend: Hugging Face now requires a paid plan for Docker
+Spaces, and the free tiers of Render and similar hosts cap memory at 512 MB,
+while the API measured ~650 MB idle and ~1.1 GB during one analysis (CPU
+PyTorch, 20 MC-Dropout passes plus Grad-CAM). The Hugging Face Spaces recipe in
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** still applies on a paid Space.
 
 One rule, enforced by the pipeline: a checkpoint trained under `data/demo/` is
 stamped `SYNTHETIC-DEMO-…`, and that string surfaces in `/api/v1/health`, the
