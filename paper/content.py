@@ -69,18 +69,19 @@ SECTIONS = [
     {
         "heading": "Introduction",
         "body": [
-            "Chest radiography is the most frequently performed diagnostic imaging "
-            "examination worldwide. Its volume grows with population and access, while "
-            "the supply of trained radiologists does not scale correspondingly. In much "
+            "No imaging study is ordered more often than the plain chest film, in "
+            "India as elsewhere. Demand rises with every new district hospital and diagnostic camp, but"
+            " the number of people qualified to report these films grows far more "
+            "slowly. In much "
             "of India, a chest radiograph acquired at a primary or secondary centre may "
             "wait days for a formal report, and the delay falls hardest on exactly the "
             "findings for which time matters, such as pneumothorax and pulmonary oedema. "
             "Automated pre-reading that orders a reporting queue by clinical urgency is "
             "therefore a more tractable and more immediately useful objective than "
             "autonomous diagnosis.",
-            "Since CheXNet demonstrated radiologist-comparable performance on pneumonia "
-            "detection [1], a large literature has reported strong discriminative "
-            "results on public chest radiograph corpora. Comparatively little of that "
+            "Since CheXNet [1] put a convolutional network level with radiologists "
+            "on pneumonia, dozens of groups have posted strong ranking scores on "
+            "the public chest film collections. Comparatively little of that "
             "work has reached clinical deployment. Among the reasons, one is "
             "methodological rather than organisational: the standard output of these "
             "systems is a vector of probabilities with no attached measure of "
@@ -89,9 +90,9 @@ SECTIONS = [
             "different clinical objects, and only the first is actionable. A system that "
             "reports the point estimate alone provides the reader no means of "
             "distinguishing them.",
-            "Two further properties are commonly absent. First, modern neural networks "
-            "are systematically overconfident, so a stated probability of 0.90 "
-            "corresponds to an empirical frequency materially below 0.90 [11]. For a "
+            "Two further properties are commonly absent. First, the probabilities such networks print are usually too high: "
+            "among the cases a model scores at 0.90, noticeably fewer than nine in "
+            "ten turn out positive [11]. For a "
             "system whose premise is that the clinician should act on the number, "
             "miscalibration is not a cosmetic defect. Second, when a model is genuinely "
             "unable to resolve a case, the conventional design still emits a decision. "
@@ -149,13 +150,12 @@ SECTIONS = [
             {
                 "heading": "Uncertainty Quantification",
                 "body": [
-                    "Keeping dropout switched on at test time and averaging many "
-                    "stochastic passes can be read as approximate Bayesian inference [6], "
-                    "which is why Monte Carlo Dropout needs no change to an existing "
-                    "network to yield a distribution over its outputs. Two sources of "
-                    "doubt are usefully separated [7]: epistemic, which more training data "
-                    "would reduce, and aleatoric, which belongs to the image itself and "
-                    "would not. Training several independent networks [8] gives better "
+                    "Leaving the dropout masks active while predicting, and repeating the "
+                    "forward pass, turns one trained network into a sampler over plausible "
+                    "networks [6]; this is the attraction of the method for us, because the"
+                    " trained model itself does not change. It helps to keep apart two reasons a prediction can be shaky [7]: the "
+                    "model may simply not have seen enough similar films, or the film "
+                    "itself may be too blurred, rotated or cluttered for anyone to be sure. Training several independent networks [8] gives better "
                     "estimates, but multiplies both training and inference cost by the "
                     "size of the ensemble. A network can also be taught to report its own "
                     "confidence by being offered hints at a price [9]; our aleatoric head "
@@ -167,13 +167,11 @@ SECTIONS = [
             {
                 "heading": "Calibration and Explanation",
                 "body": [
-                    "Deep classifiers tend to state probabilities that are higher than "
-                    "their observed hit rate, and dividing the logits by one scalar "
-                    "fitted on held-out data is a cheap correction that leaves the order "
-                    "of predictions untouched [11]. For explanation, gradient-weighted "
-                    "class activation maps [12], [13] weight the last convolutional "
-                    "feature maps by the gradient of a class score to show which regions "
-                    "drove it. Such maps matter here because chest radiograph models have "
+                    "When a network's stated confidence runs ahead of its hit rate, Guo and"
+                    " colleagues [11] showed that one fitted divisor on the logits pulls "
+                    "the two back together without reordering any case. To see where on the film a score came from, we use gradient-weighted "
+                    "activation maps [12], [13], which colour the regions whose features "
+                    "most raised that finding's score. Such maps matter here because chest radiograph models have "
                     "been shown to key on where an image came from, for instance the "
                     "scanner or a laterality marker, rather than on disease [10], a finding that motivates using saliency to audit "
                     "failure cases rather than to illustrate successes.",
@@ -188,12 +186,11 @@ SECTIONS = [
             {
                 "heading": "CheXpert",
                 "body": [
-                    "Our data come from CheXpert [2], a Stanford Hospital collection of "
-                    "just over 224,000 chest radiographs from about 65,000 patients. Its "
-                    "fourteen observation labels were not drawn by radiologists but "
-                    "extracted automatically, by a rule-based parser run over the "
-                    "radiology reports. Each label takes one of four states: positive, "
-                    "negative, uncertain, or not mentioned. We restrict to frontal "
+                    "All experiments use CheXpert [2], released by Stanford with roughly "
+                    "two hundred and twenty thousand films taken from some sixty-five "
+                    "thousand people. Nobody hand-labelled those films; each of the fourteen findings was "
+                    "read off the written report by a rule-based text parser. The parser can therefore say yes, no, maybe, or nothing at all about "
+                    "any finding. We restrict to frontal "
                     "projections and train at 320x320 pixels. Prevalence varies sharply: "
                     "Support Devices and Lung Opacity are present in a large fraction of "
                     "studies, while Pleural Other and Fracture fall below two percent. "
@@ -206,9 +203,8 @@ SECTIONS = [
                 "heading": "Uncertain Label Policy",
                 "body": [
                     "Irvin et al. compared several policies for the uncertain label "
-                    "state [2]. We adopt label-smoothing regularisation (LSR): an "
-                    "uncertain annotation is mapped to a soft target drawn uniformly "
-                    "from [0.05, 0.85] rather than to a hard 0 or 1. This expresses "
+                    "state [2]. We turn every \u201cmaybe\u201d into a soft target, a random value "
+                    "between 0.05 and 0.85, instead of forcing it to 0 or 1. This expresses "
                     "that the radiologist's hedging carries information, while biasing "
                     "the target slightly towards presence, consistent with the "
                     "clinical convention that an equivocal mention is more often a true "
@@ -234,10 +230,9 @@ SECTIONS = [
                     "pneumothorax pleural line; denoising is not applied to model "
                     "input, as the downsampling to 320 pixels already averages pixel "
                     "noise.",
-                    "Images are converted to grayscale, enhanced by contrast-limited "
-                    "adaptive histogram equalisation (CLAHE), replicated to three "
-                    "channels, and normalised with ImageNet statistics to match the "
-                    "pretrained trunk. Training augmentation consists of random "
+                    "Each film is reduced to one grey channel, given local contrast "
+                    "enhancement (CLAHE), copied into the three channels the ImageNet-"
+                    "trained trunk expects, and scaled to that trunk's input statistics. Training augmentation consists of random "
                     "resized crops, small rotations, brightness and contrast jitter, "
                     "and horizontal flips. Horizontal flipping is debatable for "
                     "radiographs because it reverses cardiac laterality; we retain it "
@@ -256,8 +251,9 @@ SECTIONS = [
             {
                 "heading": "Network Architecture",
                 "body": [
-                    "The trunk is an ImageNet-pretrained DenseNet-121 [4] with 8.0 "
-                    "million parameters, producing a 1024-dimensional pooled feature. "
+                    "Feature extraction is done by a DenseNet-121 [4] that starts from "
+                    "ImageNet weights; its roughly eight million weights summarise each "
+                    "film as a vector of 1024 numbers. "
                     "Three heads share this feature: a fourteen-way disease head with "
                     "independent sigmoid outputs, since findings co-occur and a softmax "
                     "would force them to compete; an auxiliary fracture head; and a "
@@ -271,14 +267,13 @@ SECTIONS = [
             {
                 "heading": "Loss Design under Extreme Imbalance",
                 "body": [
-                    "Binary cross-entropy weights every negative equally, so with "
-                    "prevalence below two percent the gradient is dominated by easy "
-                    "negatives. Focal Loss down-weights well-classified examples "
-                    "symmetrically [14]. Asymmetric Loss (ASL) [15] decouples the two "
-                    "sides: it applies a focusing exponent gamma- = 4 to negatives and "
-                    "gamma+ = 0 to positives, and additionally shifts negative "
-                    "probabilities down by a margin of 0.05, discarding very easy "
-                    "negatives entirely. Positive examples, which are scarce, therefore "
+                    "Plain cross-entropy treats every absent finding as equally "
+                    "informative, so when a disease appears in fewer than two films in a "
+                    "hundred, almost all of the learning signal comes from obvious "
+                    "negatives. Focal Loss [14] quietens examples the model already gets right, but it"
+                    " does so for positives and negatives alike. Asymmetric Loss [15] lets the two sides differ, and we set them far "
+                    "apart: negatives are damped with an exponent of 4, positives not at "
+                    "all, and any negative already scored below 0.05 contributes nothing. Positive examples, which are scarce, therefore "
                     "contribute their full gradient. The total objective is the disease "
                     "ASL term plus 0.3 times the fracture term plus the confidence "
                     "penalty described below.",
@@ -314,11 +309,11 @@ SECTIONS = [
             {
                 "heading": "Post-hoc Calibration",
                 "body": [
-                    "A single temperature T is fitted on the validation split by "
-                    "minimising negative log-likelihood of the logits divided by T, "
-                    "following Guo et al. [11]. Because division by a positive scalar "
-                    "is monotonic, the ranking of examples is unchanged and AUC-ROC is "
-                    "numerically identical before and after scaling. Any change in AUC "
+                    "After training we fit one number, the temperature T, on the validation"
+                    " films: logits are divided by T, and T is chosen to make the observed "
+                    "labels as likely as possible [11]. Dividing by a positive constant cannot change which case scores higher"
+                    " than which, so the AUC must come out exactly the same before and "
+                    "after. Any change in AUC "
                     "after calibration therefore indicates an implementation error, "
                     "which we use as a built-in check.",
                 ],
@@ -389,10 +384,9 @@ SECTIONS = [
             {
                 "heading": "Patient-Disjoint Splitting",
                 "body": [
-                    "CheXpert contains multiple studies per patient. A split by image "
-                    "would allow the same patient to appear in training and test sets, "
-                    "and the model could recognise the patient rather than the "
-                    "pathology. We split by patient identifier into training, "
+                    "CheXpert contains multiple studies per patient. If films were split at random, one person's follow-up X-rays could sit"
+                    " on both sides of the split, and a high test score might reflect "
+                    "remembering a ribcage rather than spotting a disease. We split by patient identifier into training, "
                     "validation and test partitions and assert at load time that the "
                     "three identifier sets are pairwise disjoint; a violation aborts "
                     "the run rather than emitting a warning.",
@@ -421,14 +415,14 @@ SECTIONS = [
             {
                 "heading": "Training Configuration",
                 "body": [
-                    "Optimisation uses AdamW with base learning rate 1e-4, weight decay "
-                    "1e-4, and a tenfold multiplier on head parameters, reflecting that "
-                    "the backbone encodes transferable features while the heads are "
-                    "randomly initialised. A two-epoch linear warmup precedes cosine "
-                    "decay, and the backbone is frozen for the first epoch. "
-                    "Mixed-precision arithmetic is enabled. An exponential moving "
-                    "average of parameters with decay 0.999 is maintained, and "
-                    "evaluation and checkpointing use the averaged weights.",
+                    "Weights are updated with AdamW at a learning rate of 1e-4 and weight "
+                    "decay of 1e-4; the freshly created output heads learn ten times faster"
+                    " than the pretrained trunk, which already knows useful image features. The rate ramps up over the first two epochs and then falls along a "
+                    "cosine curve, and the trunk stays fixed for epoch one so the new heads"
+                    " can settle first. "
+                    "Mixed-precision arithmetic is enabled. A slowly updated running average of the weights (decay 0.999) is kept "
+                    "alongside them, and it is this averaged copy that we validate and "
+                    "save.",
                     "Multi-label mixup is applied with alpha = 0.2. Targets are "
                     "combined by element-wise maximum rather than convex interpolation: "
                     "if either source image exhibits a finding, the blended image "
@@ -437,8 +431,8 @@ SECTIONS = [
                     "From the frontal CheXpert images we draw patient-disjoint subsets of "
                     "40,000 training, 4,000 validation and 4,000 test images, a scale chosen "
                     "to fit a free cloud GPU allocation. "
-                    "Training proceeds for up to 25 epochs with early stopping on "
-                    "validation mean AUC, patience 6. Batch size was determined "
+                    "Training is capped at 25 epochs and would stop early if validation AUC"
+                    " failed to improve for six epochs in a row. Batch size was determined "
                     "empirically by measuring peak allocation across a real forward "
                     "and backward pass. We note that on the Windows display driver "
                     "model, an allocation exceeding physical device memory does not "
@@ -453,19 +447,17 @@ SECTIONS = [
             {
                 "heading": "Metrics",
                 "body": [
-                    "We report mean AUC-ROC over all fourteen labels and over the "
-                    "five-label CheXpert competition subset; mean average precision, "
-                    "which unlike AUC degrades visibly where rare classes are being "
-                    "guessed; precision, recall and F1 at tuned thresholds; Brier score; "
-                    "expected calibration error (ECE) with fifteen bins; and positive "
-                    "support per class, so that a reader may judge which estimates rest "
-                    "on few cases.",
+                    "Results are given as AUC averaged over all fourteen findings and over "
+                    "the five used in the CheXpert competition; average precision, which "
+                    "drops sharply when a rare finding is being guessed; precision, recall "
+                    "and F1 at the tuned cut-offs; the Brier score; calibration error over "
+                    "fifteen bins; and, for every finding, how many positive films the test"
+                    " set held.",
                     "Two analyses specifically evaluate the uncertainty machinery. The "
                     "first stratifies predictions into quartiles by posterior standard "
                     "deviation and reports accuracy within each; a monotone decrease "
-                    "indicates that the estimates carry information. The second reports "
-                    "the selective prediction curve, accuracy as a function of retained "
-                    "coverage under deferral of the least certain predictions.",
+                    "indicates that the estimates carry information. The second asks how accuracy changes as the system hands back more and"
+                    " more of its shakiest calls to a human reader.",
                 ],
             },
         ],
@@ -482,10 +474,9 @@ SECTIONS = [
             "are enlarged cardiomediastinum (0.607), atelectasis (0.647) and "
             "consolidation (0.650), which are also among the CheXpert labels with "
             "the highest rates of uncertain annotation, so label noise as well as "
-            "visual subtlety plausibly limits them. The pneumothorax result should "
-            "be read with the confounding reported by Zech et al. [10] in mind: "
-            "treated pneumothoraces carry chest drains, and a model can score well "
-            "by detecting the drain rather than the pneumothorax.",
+            "visual subtlety plausibly limits them. We treat the pneumothorax figure with caution: a collapsed lung that "
+            "has already been treated has a drain in it, and a network can earn "
+            "credit for finding the tube instead of the air [10].",
             "The gap between AUC and average precision is largest for the rare "
             "findings, which is the reason AP is reported. Pleural other reaches an "
             "AUC of 0.734 with only 71 positives, but its AP is 0.062 and its F1 "
@@ -534,10 +525,10 @@ SECTIONS = [
             "The model was trained on 40,000 of the available frontal images and its "
             "probabilities are poorly calibrated (ECE 0.381); both bound how far the "
             "reported numbers generalise and how literally a probability can be read.",
-            "Labels are derived by automated extraction from free-text reports rather "
-            "than by expert re-annotation, and the resulting noise bounds achievable "
-            "discrimination independently of modelling choices.",
-            "The corpus originates from a single institution. We present no evidence "
+            "Because the labels were parsed from report text and never checked by a"
+            " radiologist, some are simply wrong, and no choice of model can score "
+            "above what that noise allows.",
+            "Every film came from one hospital system in California. We present no evidence "
             "of generalisation to different acquisition equipment, protocols or "
             "patient populations, and the findings of Zech et al. [10] indicate that "
             "such transfer cannot be assumed. External validation on an Indian "
@@ -547,11 +538,12 @@ SECTIONS = [
             "studies, both routine in clinical reporting, are not modelled. No clinical "
             "metadata, such as presenting symptoms, history or laboratory values, is "
             "incorporated; a radiological reading is never image-only.",
-            "Monte Carlo Dropout is an approximation to Bayesian inference, and the "
-            "choice of twenty samples is dictated by inference latency rather than by "
-            "a convergence criterion. Deep ensembles would likely yield better "
-            "calibrated posteriors at proportionally greater cost.",
-            "Grad-CAM indicates correlation between spatial features and class score. "
+            "Dropout sampling only approximates a true posterior, and we stopped at"
+            " twenty passes because more would slow each prediction, not because "
+            "twenty was shown to be enough. Training several separate networks would probably estimate uncertainty"
+            " better, at several times the cost.",
+            "A heatmap shows where the score was sensitive, which is not the same "
+            "as showing where the disease is. "
             "It does not establish that the model attends to pathology, and we make no "
             "localisation claim. Quantifying localisation requires bounding-box "
             "annotation and a pointing-game protocol, which the present corpus does "
@@ -567,9 +559,8 @@ SECTIONS = [
     {
         "heading": "Conclusion and Future Work",
         "body": [
-            "We have presented a multi-label chest radiograph classification system "
-            "designed on the premise that clinical decision support requires more than "
-            "discriminative accuracy. The system estimates epistemic uncertainty by "
+            "RadiScan was built on one conviction: a tool meant to help a doctor "
+            "read chest films must say how sure it is, not just what it thinks. The system estimates epistemic uncertainty by "
             "Monte Carlo Dropout and aleatoric uncertainty by a learned confidence "
             "head, calibrates its outputs by temperature scaling, explains its "
             "predictions by gradient-weighted class activation mapping, and, "
