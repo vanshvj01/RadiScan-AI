@@ -40,3 +40,6 @@ web/.env.local
 paper/node_modules/
 paper/out/*.pdf
 paper/out/_*
+
+# TypeScript incremental build cache
+*.tsbuildinfo
