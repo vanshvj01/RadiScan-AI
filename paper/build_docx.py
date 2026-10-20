@@ -43,7 +43,6 @@ def build_spec() -> dict:
     body.append({"kind": "title", "runs": runs(C.TITLE)})
     body.append({"kind": "authors", "runs": runs(", ".join(a["name"] for a in C.AUTHORS))})
     body.append({"kind": "affil", "runs": runs(C.AFFILIATION)})
-    body.append({"kind": "affil", "runs": runs(", ".join(a["email"] for a in C.AUTHORS))})
     body.append({"kind": "abstract", "label": "Abstract—", "runs": runs(C.ABSTRACT)})
     body.append({"kind": "abstract", "label": "Index Terms—", "runs": runs(C.KEYWORDS)})
 
@@ -55,6 +54,16 @@ def build_spec() -> dict:
             body.append({"kind": "h2", "runs": runs(f"{ALPHA[j]}. {sub['heading']}")})
             for para in sub.get("body", []):
                 body.append({"kind": "p", "runs": runs(para)})
+        for fkey in sec.get("figures", []):
+            f = C.FIGURES[fkey]
+            n = list(C.FIGURES).index(fkey) + 1
+            body.append(
+                {
+                    "kind": "figure",
+                    "path": str((HERE / f["path"]).resolve()),
+                    "caption_runs": runs(f"Fig. {n}. {f['caption']}"),
+                }
+            )
         for tkey in sec.get("tables", []):
             t = C.TABLES[tkey]
             n = ROMAN[list(C.TABLES).index(tkey)]
@@ -117,6 +126,17 @@ for (const b of spec.body) {
   } else if (b.kind === 'ref') {
     children.push(new d.Paragraph({ alignment: d.AlignmentType.JUSTIFIED, spacing: { after: 20 },
       indent: { left: 260, hanging: 260 }, children: mkRuns(b.runs, { size: 16 }) }));
+  } else if (b.kind === 'figure') {
+    // Read the PNG's own pixel size so the figure keeps its aspect ratio at
+    // one IEEE column width (3.3 in = 317 px at 96 dpi).
+    const buf = fs.readFileSync(b.path);
+    const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
+    const W = 317, H = Math.round(W * h / w);
+    children.push(new d.Paragraph({ alignment: d.AlignmentType.CENTER, spacing: { before: 120 },
+      keepNext: true,
+      children: [new d.ImageRun({ type: 'png', data: buf, transformation: { width: W, height: H } })] }));
+    children.push(new d.Paragraph({ alignment: d.AlignmentType.JUSTIFIED, spacing: { before: 40, after: 120 },
+      children: mkRuns(b.caption_runs, { size: 16 }) }));
   } else if (b.kind === 'table') {
     children.push(new d.Paragraph({ alignment: d.AlignmentType.CENTER, spacing: { before: 160, after: 60 },
       keepNext: true, children: mkRuns(b.caption_runs, { size: 16 }) }));

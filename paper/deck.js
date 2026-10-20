@@ -107,8 +107,8 @@ async function icon(Comp, color, px = 256) {
   s.addText("with an explicit deferral policy", { isTextBox: true, x: 0.8, y: 4.05, w: 11.7, h: 0.6,
     fontSize: 22, italic: true, color: C.accent5, margin: 0 });
   s.addText([
-    { text: "Vansh R. Vijayvargiya  ·  [Co-author 2]  ·  [Co-author 3]", options: { breakLine: true } },
-    { text: "Guide: [Prof. Faculty Guide]", options: { breakLine: true } },
+    { text: "Vansh R. Vijayvargiya  \u00B7  Vaibhav Dave  \u00B7  Uzair Khan  \u00B7  Aryan Lodha", options: { breakLine: true } },
+    { text: "Guide: Prof. Purnima Ahirao", options: { breakLine: true } },
     { text: "Department of Information Technology, K. J. Somaiya School of Engineering, Mumbai" },
   ], { isTextBox: true, x: 0.8, y: 5.2, w: 11.7, h: 1.3, fontSize: 15, color: C.accent6, margin: 0,
        paraSpaceAfter: 4 });

@@ -14,10 +14,11 @@ TITLE = (
 )
 
 AUTHORS = [
-    {"name": "Vansh R. Vijayvargiya", "affil": 1, "email": "v.vijayvargiya@somaiya.edu"},
-    {"name": "[[Co-author 2]]", "affil": 1, "email": "[[email]]"},
-    {"name": "[[Co-author 3]]", "affil": 1, "email": "[[email]]"},
-    {"name": "[[Prof. Faculty Guide]]", "affil": 1, "email": "[[email]]"},
+    {"name": "Vansh R. Vijayvargiya", "affil": 1},
+    {"name": "Vaibhav Dave", "affil": 1},
+    {"name": "Uzair Khan", "affil": 1},
+    {"name": "Aryan Lodha", "affil": 1},
+    {"name": "Prof. Purnima Ahirao", "affil": 1},
 ]
 
 AFFILIATION = (
@@ -473,7 +474,7 @@ SECTIONS = [
     {
         "heading": "Results and Discussion",
         "body": [
-            "Table I reports per-class discrimination on the held-out, "
+            "Table I and Fig. 1 report per-class discrimination on the held-out, "
             "patient-disjoint test split of 4,000 images. Performance follows lesion "
             "conspicuity closely. The highest AUCs are for No Finding (0.863), "
             "pleural effusion (0.828), pneumothorax (0.820), support devices (0.806) "
@@ -511,7 +512,7 @@ SECTIONS = [
             "thresholds, not as calibrated risks. Per-class calibration, for "
             "example a temperature or isotonic mapping fitted for each finding, is "
             "the direct remedy and is left to future work.",
-            "Table III evaluates the uncertainty machinery directly. Accuracy falls "
+            "Table III and Fig. 2 evaluate the uncertainty machinery directly. Accuracy falls "
             "monotonically with posterior standard deviation, from 85.6 percent in "
             "the most certain quartile to 81.9, 77.1 and finally 66.5 percent in the "
             "least certain, a gap of 19.1 percentage points. The Monte Carlo Dropout "
@@ -522,13 +523,9 @@ SECTIONS = [
             "spread of the posterior is small (mean standard deviation 0.002 to "
             "0.0065), so it is the ordering of predictions by uncertainty, rather "
             "than the raw width of an interval, that carries the signal.",
-            "[[Insert Fig. 2: per-class AUC with support; Fig. 3: reliability "
-            "diagram; Fig. 4: accuracy against coverage under selective prediction; "
-            "Fig. 5: representative Grad-CAM overlays for a true positive, a false "
-            "positive and a deferred case, and one sentence on what the false "
-            "positive's map attends to.]]",
         ],
         "tables": ["table1", "table2", "table3"],
+        "figures": ["fig_auc", "fig_unc"],
     },
     # ------------------------------------------------------------------ VIII
     {
@@ -649,6 +646,20 @@ TABLES = {
                     ['Q3', '0.0034', '14000', '0.7706'],
                     ['Q4 (least confident)', '0.0065', '14000', '0.6651'],
                 ],
+    },
+}
+
+# Figures live in paper/figures/, generated from results/ by paper/make_figures.py.
+FIGURES = {
+    "fig_auc": {
+        "path": "figures/fig_per_class_auc.png",
+        "caption": "Per-class AUC-ROC on the test split, with positive support n. "
+        "The dashed line marks the mean over fourteen findings (0.742).",
+    },
+    "fig_unc": {
+        "path": "figures/fig_uncertainty_quartiles.png",
+        "caption": "Accuracy by quartile of posterior standard deviation. Accuracy "
+        "falls monotonically as uncertainty rises, from 85.6% to 66.5%.",
     },
 }
 

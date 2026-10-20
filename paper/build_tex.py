@@ -74,7 +74,7 @@ def build() -> tuple[str, str]:
     ]
     blocks = [
         r"\IEEEauthorblockN{" + tex(a["name"]) + "}\n"
-        + r"\IEEEauthorblockA{\textit{" + tex(C.AFFILIATION) + "} \\\\ " + tex(a["email"]) + "}"
+        + r"\IEEEauthorblockA{\textit{" + tex(C.AFFILIATION) + "}}"
         for a in C.AUTHORS
     ]
     L += ["\n\\and\n".join(blocks), "}", "", r"\maketitle", "",
@@ -90,6 +90,17 @@ def build() -> tuple[str, str]:
                 L += [tex(para), ""]
         for tkey in sec.get("tables", []):
             L.append(table_tex(tkey))
+        for fkey in sec.get("figures", []):
+            f = C.FIGURES[fkey]
+            L += [
+                r"\begin{figure}[!t]",
+                r"\centering",
+                r"\includegraphics[width=\columnwidth]{" + f["path"] + "}",
+                r"\caption{" + tex(f["caption"]) + "}",
+                r"\label{fig:" + fkey + "}",
+                r"\end{figure}",
+                "",
+            ]
     L += [r"\bibliographystyle{IEEEtran}", r"\bibliography{refs}", r"\end{document}"]
 
     # @misc with a verbatim note reproduces each hand-formatted reference
