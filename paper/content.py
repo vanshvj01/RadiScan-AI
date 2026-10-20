@@ -50,8 +50,11 @@ ABSTRACT = (
     "verification step motivated by a silent failure mode in which a "
     "missing-image fallback allowed a pipeline to train to chance performance "
     "without raising any error. On a held-out, patient-disjoint test split the "
-    "system attains a mean AUC-ROC of [[mean AUC]] across fourteen findings and "
-    "an expected calibration error of [[ECE]] after temperature scaling."
+    "system attains a mean AUC-ROC of 0.7423 across fourteen findings and "
+    "an expected calibration error of 0.3809. Accuracy falls monotonically "
+    "from 85.6 to 66.5 percent across quartiles of increasing posterior "
+    "uncertainty, indicating that the uncertainty estimates carry information "
+    "about model error."
 )
 
 KEYWORDS = (
@@ -128,12 +131,13 @@ SECTIONS = [
             {
                 "heading": "Chest Radiograph Classification",
                 "body": [
-                    "The release of ChestX-ray14 [3] and CheXpert [2] made large-scale "
-                    "supervised learning on chest radiographs practical. CheXNet [1] "
-                    "applied a DenseNet-121 [4] to ChestX-ray14 and reported "
-                    "radiologist-comparable F1 on pneumonia. Subsequent work has "
-                    "explored attention mechanisms, higher input resolutions, and "
-                    "transformer backbones; a recent benchmark on CheXpert reports macro "
+                    "Two public corpora, ChestX-ray14 [3] and CheXpert [2], are what "
+                    "turned chest radiograph classification into a problem that could be "
+                    "attacked with supervised deep learning at scale. On the first of "
+                    "these, CheXNet [1] used a densely connected network [4] and matched "
+                    "the F1 of practising radiologists for pneumonia. Later systems have "
+                    "added attention, raised the input resolution, or replaced the "
+                    "convolutional trunk with a transformer; one recent CheXpert benchmark gives macro "
                     "AUROC of 0.7511 for MedViT and 0.7168 for a hybrid CNN-ViT under a "
                     "common protocol [5]. DenseNet-121 remains a strong and widely "
                     "reproduced baseline, which is the reason it is adopted here: the "
@@ -144,16 +148,17 @@ SECTIONS = [
             {
                 "heading": "Uncertainty Quantification",
                 "body": [
-                    "Gal and Ghahramani showed that dropout applied at inference "
-                    "approximates variational inference in a deep Gaussian process [6], "
-                    "making Monte Carlo Dropout the least invasive route to a posterior "
-                    "over predictions. Kendall and Gal distinguished epistemic "
-                    "uncertainty, reducible with more data, from aleatoric uncertainty, "
-                    "inherent to the input [7]. Deep ensembles [8] provide stronger "
-                    "estimates at proportionally greater training and inference cost. "
-                    "DeVries and Taylor proposed learning a confidence estimate directly "
-                    "through a hint-based penalty [9], which we adapt for the aleatoric "
-                    "component. Within chest radiography, uncertainty has been used "
+                    "Keeping dropout switched on at test time and averaging many "
+                    "stochastic passes can be read as approximate Bayesian inference [6], "
+                    "which is why Monte Carlo Dropout needs no change to an existing "
+                    "network to yield a distribution over its outputs. Two sources of "
+                    "doubt are usefully separated [7]: epistemic, which more training data "
+                    "would reduce, and aleatoric, which belongs to the image itself and "
+                    "would not. Training several independent networks [8] gives better "
+                    "estimates, but multiplies both training and inference cost by the "
+                    "size of the ensemble. A network can also be taught to report its own "
+                    "confidence by being offered hints at a price [9]; our aleatoric head "
+                    "follows that idea. Within chest radiography, uncertainty has been used "
                     "mainly as a displayed quantity; its use to drive an explicit "
                     "referral decision is less common.",
                 ],
@@ -161,14 +166,15 @@ SECTIONS = [
             {
                 "heading": "Calibration and Explanation",
                 "body": [
-                    "Guo et al. demonstrated that modern networks are poorly calibrated "
-                    "and that a single learned temperature restores calibration "
-                    "effectively without affecting ranking [11]. Grad-CAM [12] and its "
-                    "extension Grad-CAM++ [13] produce class-specific saliency from "
-                    "gradient information at the final convolutional layer. Zech et al. "
-                    "showed that chest radiograph classifiers can exploit "
-                    "hospital-specific confounders such as scanner type and laterality "
-                    "markers [10], a finding that motivates using saliency to audit "
+                    "Deep classifiers tend to state probabilities that are higher than "
+                    "their observed hit rate, and dividing the logits by one scalar "
+                    "fitted on held-out data is a cheap correction that leaves the order "
+                    "of predictions untouched [11]. For explanation, gradient-weighted "
+                    "class activation maps [12], [13] weight the last convolutional "
+                    "feature maps by the gradient of a class score to show which regions "
+                    "drove it. Such maps matter here because chest radiograph models have "
+                    "been shown to key on where an image came from, for instance the "
+                    "scanner or a laterality marker, rather than on disease [10], a finding that motivates using saliency to audit "
                     "failure cases rather than to illustrate successes.",
                 ],
             },
@@ -181,10 +187,11 @@ SECTIONS = [
             {
                 "heading": "CheXpert",
                 "body": [
-                    "We use CheXpert [2], comprising 224,316 chest radiographs from "
-                    "65,240 patients at Stanford Hospital, labelled for fourteen "
-                    "observations by an automated rule-based extractor applied to "
-                    "free-text reports. Each label takes one of four states: positive, "
+                    "Our data come from CheXpert [2], a Stanford Hospital collection of "
+                    "just over 224,000 chest radiographs from about 65,000 patients. Its "
+                    "fourteen observation labels were not drawn by radiologists but "
+                    "extracted automatically, by a rule-based parser run over the "
+                    "radiology reports. Each label takes one of four states: positive, "
                     "negative, uncertain, or not mentioned. We restrict to frontal "
                     "projections and train at 320x320 pixels. Prevalence varies sharply: "
                     "Support Devices and Lung Opacity are present in a large fraction of "
@@ -426,6 +433,9 @@ SECTIONS = [
                     "if either source image exhibits a finding, the blended image "
                     "plausibly exhibits it, whereas interpolation would assign a target "
                     "of 0.5 to a clearly present finding.",
+                    "From the frontal CheXpert images we draw patient-disjoint subsets of "
+                    "40,000 training, 4,000 validation and 4,000 test images, a scale chosen "
+                    "to fit a free cloud GPU allocation. "
                     "Training proceeds for up to 25 epochs with early stopping on "
                     "validation mean AUC, patience 6. Batch size was determined "
                     "empirically by measuring peak allocation across a real forward "
@@ -435,7 +445,8 @@ SECTIONS = [
                     "host memory across the bus, so absence of failure is not evidence "
                     "that a configuration fits; peak allocation must be compared "
                     "against physical capacity directly. Training was performed on "
-                    "[[GPU, e.g. NVIDIA Tesla P100 16 GB]] and took [[hours]] hours.",
+                    "an NVIDIA Tesla T4 (16 GB) on Kaggle and took approximately 8.8 "
+                    "hours for 25 epochs.",
                 ],
             },
             {
@@ -462,48 +473,60 @@ SECTIONS = [
     {
         "heading": "Results and Discussion",
         "body": [
-            "[[RESULTS PENDING: complete the training run described in Section VI "
-            "and run paper.fill_results to populate Tables I-III. Then replace this "
-            "paragraph with 3-5 paragraphs answering, in order: which findings were "
-            "detected well or poorly and whether that matches lesion conspicuity; "
-            "whether ECE fell under temperature scaling while AUC stayed identical; "
-            "whether Table III is monotone; and where Table II places the system "
-            "relative to [5].]]",
             "Table I reports per-class discrimination on the held-out, "
-            "patient-disjoint test split. We expect performance to correlate with "
-            "lesion conspicuity and positive support: findings that are large and "
-            "high-contrast, such as cardiomegaly and pleural effusion, should exceed "
-            "the mean, while small or rare findings such as lung lesion and pleural "
-            "other should fall below it. The support column is reported so that "
-            "estimates resting on few positive cases are identifiable as such.",
-            "Table II reports aggregate discrimination and calibration, and situates "
-            "the result against published CheXpert figures. We note that the "
-            "comparison in Table II is between methods evaluated on different splits "
-            "of the same corpus and is therefore indicative rather than a controlled "
-            "comparison.",
-            "Table III is the analysis on which the uncertainty component of this work "
-            "depends. If accuracy decreases monotonically across quartiles of "
-            "increasing posterior standard deviation, the estimates carry "
-            "discriminative information about model error and the deferral policy of "
-            "Section IV-G is justified. If it does not, the appropriate conclusion is "
-            "that Monte Carlo Dropout with S = 20 provides insufficient posterior "
-            "resolution at this data scale, and we would report that outcome rather "
-            "than a favourable alternative.",
-            "[[Insert Fig. 2: per-class AUC with support; Fig. 3: reliability diagram "
-            "before and after temperature scaling; Fig. 4: accuracy against coverage "
-            "under selective prediction; Fig. 5: representative Grad-CAM overlays for "
-            "true positive, false positive and deferred cases.]]",
-            "Calibration is expected to improve substantially under temperature "
-            "scaling while mean AUC remains numerically identical, which serves as an "
-            "arithmetic check on the implementation as well as a result: any observed "
-            "change in AUC would indicate an error, since the transformation is "
-            "monotonic.",
-            "Qualitative inspection of saliency should be reported with explicit "
-            "attention to failure cases. Where attention concentrates on support "
-            "devices, laterality markers or image borders rather than parenchyma, that "
-            "observation should be reported, since it is precisely the confounding "
-            "described by Zech et al. [10] and is more informative than a selection of "
-            "favourable examples.",
+            "patient-disjoint test split of 4,000 images. Performance follows lesion "
+            "conspicuity closely. The highest AUCs are for No Finding (0.863), "
+            "pleural effusion (0.828), pneumothorax (0.820), support devices (0.806) "
+            "and cardiomegaly (0.802): large or high-contrast findings. The lowest "
+            "are enlarged cardiomediastinum (0.607), atelectasis (0.647) and "
+            "consolidation (0.650), which are also among the CheXpert labels with "
+            "the highest rates of uncertain annotation, so label noise as well as "
+            "visual subtlety plausibly limits them. The pneumothorax result should "
+            "be read with the confounding reported by Zech et al. [10] in mind: "
+            "treated pneumothoraces carry chest drains, and a model can score well "
+            "by detecting the drain rather than the pneumothorax.",
+            "The gap between AUC and average precision is largest for the rare "
+            "findings, which is the reason AP is reported. Pleural other reaches an "
+            "AUC of 0.734 with only 71 positives, but its AP is 0.062 and its F1 "
+            "0.066: the model ranks these cases somewhat above negatives, yet almost "
+            "none of its positive calls at the tuned threshold are correct. A "
+            "single-number AUC summary would have hidden this.",
+            "Table II places the system against published CheXpert results. The mean "
+            "AUC over fourteen findings is 0.7423 and over the five competition "
+            "findings 0.7435, slightly below MedViT (0.7511) and above the hybrid "
+            "CNN-ViT (0.7168) reported in [5]. The comparison is indicative only: "
+            "the published figures come from a different split, and our model was "
+            "trained on a 40,000-image subset rather than the full training set. We "
+            "therefore do not claim a discriminative improvement; the contribution "
+            "of this work is the uncertainty and deferral machinery built around a "
+            "competitive baseline.",
+            "Calibration is the weakest result. The expected calibration error after "
+            "temperature scaling is 0.381, far from well calibrated. A likely "
+            "explanation is that two design choices made to detect rare findings, "
+            "Asymmetric Loss and inverse-frequency balanced sampling, both shift "
+            "predicted probabilities upwards relative to true prevalence, and a "
+            "single global temperature can rescale confidence but cannot correct a "
+            "prior shift that differs from class to class. The probabilities "
+            "should therefore be read as rankings and inputs to the per-class "
+            "thresholds, not as calibrated risks. Per-class calibration, for "
+            "example a temperature or isotonic mapping fitted for each finding, is "
+            "the direct remedy and is left to future work.",
+            "Table III evaluates the uncertainty machinery directly. Accuracy falls "
+            "monotonically with posterior standard deviation, from 85.6 percent in "
+            "the most certain quartile to 81.9, 77.1 and finally 66.5 percent in the "
+            "least certain, a gap of 19.1 percentage points. The Monte Carlo Dropout "
+            "estimates therefore carry real information about which predictions "
+            "are wrong, which is the condition under which the deferral policy of "
+            "Section IV-G is justified: referring the least certain predictions for "
+            "review removes a disproportionate share of the errors. The absolute "
+            "spread of the posterior is small (mean standard deviation 0.002 to "
+            "0.0065), so it is the ordering of predictions by uncertainty, rather "
+            "than the raw width of an interval, that carries the signal.",
+            "[[Insert Fig. 2: per-class AUC with support; Fig. 3: reliability "
+            "diagram; Fig. 4: accuracy against coverage under selective prediction; "
+            "Fig. 5: representative Grad-CAM overlays for a true positive, a false "
+            "positive and a deferred case, and one sentence on what the false "
+            "positive's map attends to.]]",
         ],
         "tables": ["table1", "table2", "table3"],
     },
@@ -511,6 +534,9 @@ SECTIONS = [
     {
         "heading": "Limitations",
         "body": [
+            "The model was trained on 40,000 of the available frontal images and its "
+            "probabilities are poorly calibrated (ECE 0.381); both bound how far the "
+            "reported numbers generalise and how literally a probability can be read.",
             "Labels are derived by automated extraction from free-text reports rather "
             "than by expert re-annotation, and the resulting noise bounds achievable "
             "discrimination independently of modelling choices.",
@@ -586,32 +612,43 @@ TABLES = {
         "columns": ["Finding", "Support", "AUC", "AP", "Precision", "Recall", "F1"],
         "widths": [1900, 900, 900, 900, 1000, 900, 850],
         "rows": [
-            [name, "[[n]]", "[[--]]", "[[--]]", "[[--]]", "[[--]]", "[[--]]"]
-            for name in _LABELS
-        ]
-        + [["Mean", "--", "[[--]]", "[[--]]", "[[--]]", "[[--]]", "[[--]]"]],
+                    ['No Finding', '375', '0.8631', '0.4218', '0.437', '0.491', '0.462'],
+                    ['Enlarged Cardiomed.', '270', '0.6073', '0.1197', '0.097', '0.478', '0.162'],
+                    ['Cardiomegaly', '490', '0.8018', '0.4464', '0.385', '0.543', '0.450'],
+                    ['Lung Opacity', '2053', '0.6934', '0.6675', '0.587', '0.924', '0.718'],
+                    ['Lung Lesion', '191', '0.7610', '0.1386', '0.137', '0.277', '0.183'],
+                    ['Edema', '1052', '0.7916', '0.5486', '0.485', '0.667', '0.562'],
+                    ['Consolidation', '513', '0.6497', '0.1875', '0.188', '0.517', '0.276'],
+                    ['Pneumonia', '246', '0.6933', '0.1492', '0.173', '0.358', '0.233'],
+                    ['Atelectasis', '888', '0.6468', '0.3153', '0.286', '0.771', '0.417'],
+                    ['Pneumothorax', '420', '0.8200', '0.3939', '0.350', '0.602', '0.443'],
+                    ['Pleural Effusion', '1765', '0.8278', '0.7785', '0.652', '0.860', '0.741'],
+                    ['Pleural Other', '71', '0.7341', '0.0617', '0.150', '0.042', '0.066'],
+                    ['Fracture', '174', '0.6962', '0.1571', '0.203', '0.172', '0.186'],
+                    ['Support Devices', '2267', '0.8060', '0.8257', '0.718', '0.886', '0.793'],
+                    ['Mean', '--', '0.7423', '0.3723', '0.346', '0.542', '0.407'],
+                ],
     },
     "table2": {
         "caption": "Aggregate performance and comparison with published CheXpert results",
         "columns": ["Method", "Backbone", "Mean AUC", "CheXpert-5 AUC", "ECE"],
         "widths": [1700, 1300, 1000, 1100, 900],
         "rows": [
-            ["MedViT [5]", "Transformer", "0.7511", "--", "--"],
-            ["Hybrid CNN-ViT [5]", "CNN + ViT", "0.7168", "--", "--"],
-            ["Ours (uncalibrated)", "DenseNet-121", "[[--]]", "[[--]]", "[[--]]"],
-            ["Ours (temp. scaled)", "DenseNet-121", "[[--]]", "[[--]]", "[[--]]"],
-        ],
+                    ['MedViT [5]', 'Transformer', '0.7511', '--', '--'],
+                    ['Hybrid CNN-ViT [5]', 'CNN + ViT', '0.7168', '--', '--'],
+                    ['Ours (temp. scaled)', 'DenseNet-121', '0.7423', '0.7435', '0.3809'],
+                ],
     },
     "table3": {
         "caption": "Accuracy stratified by posterior standard deviation quartile",
         "columns": ["Quartile", "Mean sigma", "n", "Accuracy"],
         "widths": [1600, 1200, 1000, 1200],
         "rows": [
-            ["Q1 (most certain)", "[[--]]", "[[n]]", "[[--]]"],
-            ["Q2", "[[--]]", "[[n]]", "[[--]]"],
-            ["Q3", "[[--]]", "[[n]]", "[[--]]"],
-            ["Q4 (least certain)", "[[--]]", "[[n]]", "[[--]]"],
-        ],
+                    ['Q1 (most confident)', '0.0020', '14000', '0.8559'],
+                    ['Q2', '0.0026', '14000', '0.8194'],
+                    ['Q3', '0.0034', '14000', '0.7706'],
+                    ['Q4 (least confident)', '0.0065', '14000', '0.6651'],
+                ],
     },
 }
 

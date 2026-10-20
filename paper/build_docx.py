@@ -119,17 +119,17 @@ for (const b of spec.body) {
       indent: { left: 260, hanging: 260 }, children: mkRuns(b.runs, { size: 16 }) }));
   } else if (b.kind === 'table') {
     children.push(new d.Paragraph({ alignment: d.AlignmentType.CENTER, spacing: { before: 160, after: 60 },
-      children: mkRuns(b.caption_runs, { size: 16 }) }));
+      keepNext: true, children: mkRuns(b.caption_runs, { size: 16 }) }));
     const total = b.widths.reduce((a, c) => a + c, 0);
     const cell = (rs, bold, w) => new d.TableCell({
       width: { size: w, type: d.WidthType.DXA },
       margins: { top: 20, bottom: 20, left: 60, right: 60 },
       shading: bold ? { type: d.ShadingType.CLEAR, fill: 'E8E8E8' } : undefined,
-      children: [new d.Paragraph({ children: mkRuns(rs, { size: b.font, bold }) })],
+      children: [new d.Paragraph({ keepNext: true, children: mkRuns(rs, { size: b.font, bold }) })],
     });
     const header = new d.TableRow({ tableHeader: true,
       children: b.columns.map((c, i) => cell([{ text: c }], true, b.widths[i])) });
-    const rows = b.rows.map(r => new d.TableRow({ children: r.map((rs, i) => cell(rs, false, b.widths[i])) }));
+    const rows = b.rows.map(r => new d.TableRow({ cantSplit: true, children: r.map((rs, i) => cell(rs, false, b.widths[i])) }));
     children.push(new d.Table({ columnWidths: b.widths, width: { size: total, type: d.WidthType.DXA },
       rows: [header, ...rows] }));
     children.push(new d.Paragraph({ text: '', spacing: { after: 80 } }));

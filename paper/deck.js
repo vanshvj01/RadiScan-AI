@@ -437,10 +437,13 @@ async function icon(Comp, color, px = 256) {
       valGridLine: { color: "E3E8EB", size: 0.5 }, catGridLine: { style: "none" }, showLegend: false,
     });
     const kp = [[f4(DATA.mean_auc), "mean AUC, 14 findings"], [f4(DATA.comp_auc), "mean AUC, CheXpert-5"],
-                [f4(DATA.ece), "calibration error (ECE)"]];
+                [f4(DATA.ece), DATA.ece > 0.1 ? "calibration error (ECE): high, see limitations" : "calibration error (ECE)"]];
     kp.forEach(([v, l], i) => {
+      // ECE above 0.1 is poor calibration: show it in the warning colour rather
+      // than the "good" teal the AUC figures use.
+      const bad = i === 2 && DATA.ece > 0.1;
       s.addText(v, { isTextBox: true, x: 8.7, y: 1.6 + i * 1.65, w: 4, h: 0.9, fontSize: 44, bold: true,
-        color: C.accent1, fontFace: THEME.headFontFace, margin: 0 });
+        color: bad ? C.accent3 : C.accent1, fontFace: THEME.headFontFace, margin: 0 });
       s.addText(l, { isTextBox: true, x: 8.7, y: 2.5 + i * 1.65, w: 4, h: 0.4, fontSize: 14, color: C.accent4, margin: 0 });
     });
     s.addText(`Held-out, patient-disjoint test split, n = ${DATA.n.toLocaleString("en-IN")} images.`,
@@ -454,8 +457,10 @@ async function icon(Comp, color, px = 256) {
     });
   }
   s.addNotes(DATA.real
-    ? "Point out which findings are strongest and weakest and relate it to how visible each finding is. " +
-      "Large high-contrast findings like cardiomegaly and effusion should lead; small or rare ones trail."
+    ? "Strongest: No Finding, effusion, pneumothorax, support devices, cardiomegaly (large or high-contrast). " +
+      "Weakest: enlarged cardiomediastinum, atelectasis, consolidation (subtle, and heavily uncertain-labelled). " +
+      "Say up front that calibration error is high (0.38): asymmetric loss and balanced sampling push probabilities " +
+      "up for rare findings, and one global temperature cannot undo a per-class shift. Treat outputs as rankings."
     : "PLACEHOLDER SLIDE. After the Kaggle run: python -m paper.build_deck --results results");
 
   // ================================================================ 14 comparison
@@ -489,7 +494,7 @@ async function icon(Comp, color, px = 256) {
     { text: "Read this comparison carefully", options: { bold: true, fontSize: 17, breakLine: true } },
     { text: "The published models were evaluated on a different split of CheXpert. The comparison is indicative, not controlled.", options: { fontSize: 14, breakLine: true } },
     { text: " ", options: { fontSize: 6, breakLine: true } },
-    { text: "Our claim is not higher AUC. It is that each prediction comes with calibrated uncertainty and a referral rule.", options: { fontSize: 14, bold: true } },
+    { text: "Our claim is not higher AUC. It is that each prediction comes with an uncertainty estimate and a referral rule.", options: { fontSize: 14, bold: true } },
   ], { isTextBox: true, x: 8.9, y: 2.75, w: 3.5, h: 3.3, valign: "top", margin: 0, color: C.text1 });
   s.addNotes("Do not claim we beat these models; the splits differ. If asked: our contribution is the " +
     "uncertainty and deferral machinery, and a strong reproducible baseline trunk.");
@@ -500,7 +505,7 @@ async function icon(Comp, color, px = 256) {
   if (DATA.real) {
     s.addChart(pres.charts.BAR, [{ name: "Accuracy", labels: DATA.quartiles.map((q) => q.q),
       values: DATA.quartiles.map((q) => q.acc) }], {
-      x: 0.6, y: 1.5, w: 6.0, h: 4.6, barDir: "col", chartColors: [HEX.accent1],
+      x: 0.6, y: 1.5, w: DATA.selective ? 6.0 : 7.4, h: 4.6, barDir: "col", chartColors: [HEX.accent1],
       showTitle: true, title: "Accuracy by uncertainty quartile (Q1 = most certain)", titleFontSize: 13,
       titleColor: HEX.dk1, titleFontFace: "+mj-lt", showValue: true, dataLabelPosition: "outEnd",
       dataLabelFormatCode: "0.000", dataLabelFontSize: 11, dataLabelColor: HEX.dk1, dataLabelFontFace: "+mn-lt",
@@ -516,6 +521,17 @@ async function icon(Comp, color, px = 256) {
         catAxisLabelFontFace: "+mn-lt", valAxisLabelFontFace: "+mn-lt",
         valGridLine: { color: "E3E8EB", size: 0.5 }, catGridLine: { style: "none" }, showLegend: false,
       });
+    }
+    if (!DATA.selective) {
+      const q = DATA.quartiles;
+      const gap = ((q[0].acc - q[q.length - 1].acc) * 100).toFixed(1);
+      card(s, 8.4, 1.6, 4.3, 4.4, C.background2, "gap-card");
+      s.addText(gap + " pts", { isTextBox: true, x: 8.4, y: 2.0, w: 4.3, h: 1.1, fontSize: 48, bold: true,
+        color: C.accent1, align: "center", fontFace: THEME.headFontFace, margin: 0 });
+      s.addText("accuracy gap between the most and least certain quarter of predictions",
+        { isTextBox: true, x: 8.7, y: 3.15, w: 3.7, h: 0.9, fontSize: 15, color: C.text1, align: "center", margin: 0 });
+      s.addText("Deferring the least certain predictions removes a disproportionate share of the errors.",
+        { isTextBox: true, x: 8.7, y: 4.3, w: 3.7, h: 1.2, fontSize: 14, color: C.accent4, align: "center", margin: 0 });
     }
     s.addText(DATA.monotone
       ? "Accuracy falls monotonically as uncertainty rises: the estimates are informative, and the deferral policy is justified."
@@ -539,7 +555,7 @@ async function icon(Comp, color, px = 256) {
     [fa.FaTags, "Noisy labels", "Extracted from report text, not re-annotated by experts."],
     [fa.FaHospital, "One hospital", "Stanford only. No evidence yet for Indian hospitals or other scanners."],
     [fa.FaColumns, "Frontal view only", "No lateral views, prior studies or clinical history."],
-    [fa.FaDice, "Approximate Bayes", "MC Dropout with S = 20 is chosen for speed; ensembles would be better."],
+    [fa.FaDice, "Poorly calibrated", "ECE 0.38: read outputs as rankings. Per-class calibration is the fix."],
     [fa.FaSearch, "Saliency ≠ localisation", "Grad-CAM shows correlation; no bounding-box evaluation."],
     [fa.FaGavel, "Not a medical device", "No prospective study, reader study or regulatory approval."],
   ];
@@ -559,10 +575,10 @@ async function icon(Comp, color, px = 256) {
   s = pres.addSlide({ masterName: "DARK", sectionTitle: "Closing" });
   T(s, "A classifier that knows when to ask for help");
   s.addText([
-    { text: "Quantifies, calibrates and explains its uncertainty for 14 findings", options: { bullet: true, breakLine: true } },
+    { text: "Mean AUC 0.742 on 14 findings; uncertainty separates right from wrong (85.6% vs 66.5%)", options: { bullet: true, breakLine: true } },
     { text: "Refers cases it cannot resolve instead of guessing", options: { bullet: true, breakLine: true } },
     { text: "Delivered as a tested, auditable clinical web application", options: { bullet: true, breakLine: true } },
-    { text: "Next: deep ensembles · external validation on Indian data · reader study", options: { bullet: true, color: C.accent5 } },
+    { text: "Next: per-class calibration \u00B7 full training set \u00B7 external validation on Indian data", options: { bullet: true, color: C.accent5 } },
   ], { isTextBox: true, x: 0.8, y: 4.25, w: 11.7, h: 2.2, fontSize: 18, color: C.background1, margin: 0, paraSpaceAfter: 8 });
   s.addText("Thank you  ·  Questions?", { isTextBox: true, x: 0.8, y: 6.55, w: 11.7, h: 0.5, fontSize: 16,
     italic: true, color: C.accent6, margin: 0 });
