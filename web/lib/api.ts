@@ -9,6 +9,17 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
 const TOKEN_KEY = 'radiscan.access_token';
 
+/**
+ * The demo backend runs on a laptop behind an ngrok free-plan domain, which
+ * answers browser requests with an HTML warning page unless this header is
+ * present. Harmless for any other backend; the API's CORS policy allows it.
+ */
+const TUNNEL_HEADERS: Record<string, string> = { 'ngrok-skip-browser-warning': '1' };
+
+function withHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return { ...TUNNEL_HEADERS, ...extra };
+}
+
 export type ScanStatus = 'uploaded' | 'processing' | 'completed' | 'failed';
 export type RiskLevel = 'low' | 'moderate' | 'high' | 'critical';
 
@@ -177,6 +188,7 @@ export const auth = {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
+  Object.entries(TUNNEL_HEADERS).forEach(([k, v]) => headers.set(k, v));
   const token = auth.token;
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
@@ -210,7 +222,7 @@ export const api = {
     const body = new URLSearchParams({ username, password });
     const res = await fetch(`${BASE}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: withHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
       body,
     });
     if (!res.ok) throw new ApiError(res.status, 'Incorrect username or password');
@@ -290,7 +302,7 @@ export const api = {
   async authedImage(path: string): Promise<string> {
     const url = path.startsWith('http') ? path : `${BASE.replace(/\/api\/v1$/, '')}${path}`;
     const res = await fetch(url, {
-      headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+      headers: withHeaders(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
     });
     if (!res.ok) throw new ApiError(res.status, 'Image unavailable');
     return URL.createObjectURL(await res.blob());
@@ -298,7 +310,7 @@ export const api = {
 
   async downloadPdf(scanId: number) {
     const res = await fetch(`${BASE}/reports/${scanId}/pdf`, {
-      headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+      headers: withHeaders(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
     });
     if (!res.ok) throw new ApiError(res.status, 'Could not generate PDF');
     const url = URL.createObjectURL(await res.blob());
