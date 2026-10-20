@@ -212,6 +212,25 @@ The production topology (Postgres, Redis, a real Celery worker) is
 
 ---
 
+## Clinical workflow
+
+Features built around the deferral policy, so the uncertainty estimate changes
+what happens rather than only what is displayed:
+
+| For doctors | For patients |
+|---|---|
+| **Worklist** sorted by urgency: risk, possible critical findings, indeterminate findings, image quality, then waiting time | **Plain-language summary** in English, Hindi or Marathi, released only after a doctor signs; built from the doctor's choices, never raw model output |
+| **Review of model calls**: confirm, reject or mark unsure each finding, with agreement statistics (own calls vs. deferred findings) | **One-time share code / QR** to give a doctor access in person (24 h, single use, hash-only storage, guessing limit) |
+| **Image-quality gate** before interpretation (resolution, exposure, contrast, blur, photographed film) | **Follow-up reminders**, created when a doctor signs with a repeat interval |
+| **Editable, versioned, signed report** starting from the AI draft, with the share of the draft changed | |
+| **Prior-study comparison**: wipe slider over both films or heatmaps, per-finding trend | |
+
+Notes for the report: the quality thresholds are conservative heuristics, not
+validated against radiographer judgement; the Hindi and Marathi wording needs
+review by a native-speaking clinician; and the model's learned confidence head
+did not separate readable from unreadable films (0.42-0.44 on real films, 0.46
+on noise), so it is recorded but not used to flag quality.
+
 ## Deployment
 
 **Live demo:** dashboard at **https://radiscan-ai.vercel.app**, API served from

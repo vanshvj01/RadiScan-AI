@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { api, type PredictionResult, type ReportPayload, type RiskLevel } from '@/lib/api';
 import { FindingRow } from './FindingRow';
+import { QualityBanner } from './QualityBanner';
 
 export const RISK_STYLES: Record<RiskLevel, string> = {
   low: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
@@ -34,6 +35,8 @@ export function ResultsPanel({ result }: { result: PredictionResult }) {
           demonstrate the interface.
         </div>
       )}
+
+      <QualityBanner quality={result.quality} />
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>

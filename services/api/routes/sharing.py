@@ -8,16 +8,25 @@ revocation and history view is written to the audit log.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from services.api.core.access import active_grant, can_view_patient
 from services.api.core.security import current_user
-from services.api.db.models import AccessGrant, AuditLog, Prediction, Scan, User
+from services.api.db.models import AccessGrant, AuditLog, Prediction, Scan, ShareCode, User
 from services.api.db.session import get_db
-from services.api.schemas.schemas import GrantCreate, GrantOut, HistoryItem, PatientHistory
+from services.api.schemas.schemas import (
+    GrantCreate,
+    GrantOut,
+    HistoryItem,
+    PatientHistory,
+    ShareCodeOut,
+    ShareCodeRedeem,
+)
 
 router = APIRouter(prefix="/sharing", tags=["sharing"])
 
@@ -158,3 +167,91 @@ def patient_history(
         patient_name=patient.full_name,
         items=items,
     )
+
+
+# --------------------------------------------------------------------------
+# One-time share codes (typed, or scanned as a QR code)
+# --------------------------------------------------------------------------
+# No 0/O, 1/I/L: the code is read aloud and typed by hand in clinics.
+CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+CODE_LENGTH = 8  # 31^8 ~ 8.5e11 combinations
+CODE_TTL = timedelta(hours=24)
+# Guessing: a doctor account that fails this many redemptions in an hour is
+# refused further attempts until the hour passes.
+MAX_FAILED_PER_HOUR = 10
+
+
+def _normalise(code: str) -> str:
+    return "".join(ch for ch in code.upper() if ch.isalnum())
+
+
+def _hash(code: str) -> str:
+    return hashlib.sha256(_normalise(code).encode()).hexdigest()
+
+
+def _aware(dt: datetime) -> datetime:
+    # SQLite hands back naive datetimes even for timezone=True columns.
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+@router.post("/codes", response_model=ShareCodeOut, status_code=status.HTTP_201_CREATED)
+def create_share_code(
+    request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)
+) -> ShareCodeOut:
+    """Patient: a code to give a doctor in person. Shown once; valid 24 h, one use."""
+    if not user.is_patient:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only patients can create share codes")
+    raw = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+    expires = datetime.now(timezone.utc) + CODE_TTL
+    db.add(ShareCode(patient_id=user.id, code_hash=_hash(raw), expires_at=expires))
+    _audit(db, user, "sharing.code_create", f"patient:{user.id}", request)
+    db.commit()
+    return ShareCodeOut(code=f"{raw[:4]}-{raw[4:]}", expires_at=expires)
+
+
+@router.post("/codes/redeem", response_model=GrantOut, status_code=status.HTTP_201_CREATED)
+def redeem_share_code(
+    payload: ShareCodeRedeem,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> GrantOut:
+    """Doctor: redeem a patient's code to gain access to their history."""
+    if not user.is_clinician:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only doctors can redeem share codes")
+
+    hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    failures = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.action == "sharing.code_failed",
+            AuditLog.created_at >= hour_ago,
+        )
+        .count()
+    )
+    if failures >= MAX_FAILED_PER_HOUR:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, "Too many incorrect codes. Try again in an hour."
+        )
+
+    now = datetime.now(timezone.utc)
+    code = db.query(ShareCode).filter(ShareCode.code_hash == _hash(payload.code)).first()
+    if code is None or code.used_at is not None or _aware(code.expires_at) <= now:
+        _audit(db, user, "sharing.code_failed", "code", request)
+        db.commit()
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "That code is not valid. It may have expired or been used."
+        )
+
+    code.used_at = now
+    code.used_by_id = user.id
+    grant = active_grant(db, code.patient_id, user.id)
+    if grant is None:
+        grant = AccessGrant(patient_id=code.patient_id, doctor_id=user.id)
+        db.add(grant)
+        db.flush()
+    _audit(db, user, "sharing.code_redeem", f"patient:{code.patient_id}", request)
+    db.commit()
+    db.refresh(grant)
+    return _grant_out(grant)

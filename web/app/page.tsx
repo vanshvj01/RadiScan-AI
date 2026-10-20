@@ -3,12 +3,19 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { AuthGate, useMe } from '@/components/AuthGate';
+import { ComparePanel } from '@/components/ComparePanel';
+import { DoctorReportPanel } from '@/components/DoctorReportPanel';
 import { HeatmapViewer } from '@/components/HeatmapViewer';
 import { PatientHistoryPanel } from '@/components/PatientHistoryPanel';
+import { PatientReportPanel } from '@/components/PatientReportPanel';
 import { PatientsPanel } from '@/components/PatientsPanel';
+import { RemindersPanel } from '@/components/RemindersPanel';
 import { ResultsPanel } from '@/components/ResultsPanel';
+import { ReviewPanel } from '@/components/ReviewPanel';
+import { ReviewStatsCard } from '@/components/ReviewStatsCard';
 import { SharingPanel } from '@/components/SharingPanel';
 import { UploadPanel } from '@/components/UploadPanel';
+import { WorklistPanel } from '@/components/WorklistPanel';
 import { api, isClinician, type Health, type PredictionResult, type Scan } from '@/lib/api';
 
 export default function Page() {
@@ -27,12 +34,16 @@ function Dashboard() {
   const [patientView, setPatientView] = useState<number | null>(null);
   const [scans, setScans] = useState<Scan[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
+  // Bumped after anything that changes the worklist, stats or reminders.
+  const [changes, setChanges] = useState(0);
+  const changed = useCallback(() => setChanges((n) => n + 1), []);
 
   const refresh = useCallback(() => {
     api
       .scans(1, 15)
       .then((page) => setScans(page.items))
       .catch(() => setScans([]));
+    setChanges((n) => n + 1);
   }, []);
 
   useEffect(() => {
@@ -79,12 +90,26 @@ function Dashboard() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
         <div className="space-y-6">
+          {doctor && (
+            <WorklistPanel
+              onOpen={openScan}
+              selectedId={result?.scan_id ?? null}
+              refreshKey={changes}
+            />
+          )}
           <UploadPanel onResult={onResult} />
 
           {doctor ? (
-            <PatientsPanel onOpen={openPatient} selectedId={result ? null : patientView} />
+            <>
+              <PatientsPanel onOpen={openPatient} selectedId={result ? null : patientView} />
+              <ReviewStatsCard refreshKey={changes} />
+              <RemindersPanel doctor refreshKey={changes} />
+            </>
           ) : (
-            <SharingPanel />
+            <>
+              <RemindersPanel doctor={false} refreshKey={changes} />
+              <SharingPanel />
+            </>
           )}
 
           <div className="card">
@@ -160,7 +185,24 @@ function Dashboard() {
         <div className="space-y-6">
           {result ? (
             <>
+              {!doctor && <PatientReportPanel key={`pr-${result.scan_id}`} scanId={result.scan_id} />}
               <ResultsPanel result={result} />
+              {doctor && (
+                <>
+                  <ReviewPanel
+                    scanId={result.scan_id}
+                    findings={result.findings}
+                    onSaved={changed}
+                  />
+                  <DoctorReportPanel
+                    scanId={result.scan_id}
+                    labels={result.label_set}
+                    hasPatient={result.patient_id !== null}
+                    onSaved={changed}
+                  />
+                </>
+              )}
+              {result.patient_id !== null && <ComparePanel scanId={result.scan_id} />}
               {result.patient_id !== null && (
                 <PatientHistoryPanel
                   patientId={result.patient_id}

@@ -33,7 +33,18 @@ export interface Finding {
   reliability: number;
   threshold: number;
   positive: boolean;
+  /** Interval straddles the threshold (or spread too wide): referred for review. */
+  deferred: boolean;
   heatmap_url: string | null;
+}
+
+export type QualityStatus = 'good' | 'fair' | 'poor';
+
+export interface Quality {
+  status: QualityStatus;
+  issues: { code: string; level: QualityStatus; message: string }[];
+  recommendation: string;
+  metrics: Record<string, number | null>;
 }
 
 export interface PredictionResult {
@@ -58,6 +69,8 @@ export interface PredictionResult {
   /** Whose history this scan belongs to; null for a doctor's unlinked upload. */
   patient_id: number | null;
   patient_username: string | null;
+  /** Image-quality gate; null for studies analysed before it existed. */
+  quality: Quality | null;
 }
 
 export type Role = 'doctor' | 'patient' | 'radiologist' | 'admin' | 'viewer';
@@ -152,6 +165,147 @@ export interface Health {
   device: string;
   labels: string[] | null;
   warnings: string[];
+}
+
+// -- clinical workflow -------------------------------------------------------
+export type ReviewDecision = 'confirmed' | 'rejected' | 'unsure';
+
+export interface Review {
+  label: string;
+  decision: ReviewDecision;
+  note: string | null;
+  was_deferred: boolean;
+  model_positive: boolean;
+  model_probability: number;
+  reviewer_username: string;
+  updated_at: string;
+}
+
+interface ReviewGroup {
+  reviewed: number;
+  confirmed: number;
+  rejected: number;
+  unsure: number;
+}
+
+export interface ReviewStats {
+  scope: 'mine' | 'all';
+  scans_reviewed: number;
+  model_calls: ReviewGroup;
+  model_agreement: number | null;
+  deferred: ReviewGroup;
+  deferred_present_rate: number | null;
+}
+
+export type ReportStatus = 'none' | 'draft' | 'signed';
+
+export interface WorklistItem {
+  scan_id: number;
+  created_at: string;
+  filename: string;
+  patient_username: string | null;
+  patient_ref: string | null;
+  uploaded_by: string | null;
+  risk_level: RiskLevel;
+  top_finding: string | null;
+  top_probability: number;
+  critical_findings: string[];
+  deferred_findings: string[];
+  quality: QualityStatus | null;
+  reasons: string[];
+  reviewed: boolean;
+  report_status: ReportStatus;
+}
+
+export type FollowUp = 'none' | 'routine' | 'soon' | 'urgent';
+
+export interface DoctorReportVersion {
+  version: number;
+  author_username: string;
+  author_name: string | null;
+  impression: string;
+  findings_text: string;
+  recommendations: string;
+  patient_findings: string[];
+  follow_up: FollowUp;
+  follow_up_weeks: number | null;
+  patient_note: string | null;
+  edit_ratio: number;
+  created_at: string;
+  signed_at: string | null;
+}
+
+export interface DoctorReportState {
+  scan_id: number;
+  status: ReportStatus;
+  ai_draft: { impression?: string; findings_text?: string; recommendations?: string };
+  latest: DoctorReportVersion | null;
+  history: DoctorReportVersion[];
+}
+
+export interface DoctorReportInput {
+  impression: string;
+  findings_text: string;
+  recommendations: string;
+  patient_findings: string[];
+  follow_up: FollowUp;
+  follow_up_weeks: number | null;
+  patient_note: string | null;
+  sign: boolean;
+}
+
+export type Trend = 'new' | 'resolved' | 'worse' | 'better' | 'stable';
+type Call = 'positive' | 'negative' | 'deferred';
+
+export interface Comparison {
+  current: { scan_id: number; created_at: string; risk_level: RiskLevel; enhanced_url: string | null };
+  prior: { scan_id: number; created_at: string; risk_level: RiskLevel; enhanced_url: string | null };
+  days_between: number;
+  rows: {
+    label: string;
+    current: number;
+    prior: number;
+    delta: number;
+    current_call: Call;
+    prior_call: Call;
+    trend: Trend;
+    current_heatmap: string | null;
+    prior_heatmap: string | null;
+  }[];
+}
+
+export type Language = 'en' | 'hi' | 'mr';
+
+export interface PatientSummary {
+  scan_id: number;
+  language: Language;
+  title: string;
+  headline: string;
+  findings: { label: string; name: string; explanation: string }[];
+  no_findings_text: string;
+  next_steps: string;
+  doctor_note: string | null;
+  doctor_note_label: string;
+  signed_by: string;
+  signed_at: string;
+  disclaimer: string;
+}
+
+export type ReminderStatus = 'pending' | 'done' | 'dismissed';
+
+export interface Reminder {
+  id: number;
+  patient_id: number;
+  patient_username: string;
+  created_by_username: string;
+  created_by_name: string | null;
+  scan_id: number | null;
+  due_date: string;
+  note: string;
+  status: ReminderStatus;
+  overdue: boolean;
+  days_until: number;
+  created_at: string;
 }
 
 export class ApiError extends Error {
@@ -294,6 +448,59 @@ export const api = {
   deleteScan: (scanId: number) => request<void>(`/predict/${scanId}`, { method: 'DELETE' }),
 
   report: (scanId: number) => request<ReportPayload>(`/reports/${scanId}`),
+
+  // -- clinical workflow ----------------------------------------------------
+  worklist: (includeSigned = false) =>
+    request<{ items: WorklistItem[]; total: number; pending: number }>(
+      `/worklist?include_signed=${includeSigned}`,
+    ),
+
+  reviews: (scanId: number) => request<Review[]>(`/reviews/${scanId}`),
+
+  submitReviews: (
+    scanId: number,
+    reviews: { label: string; decision: ReviewDecision; note?: string | null }[],
+  ) =>
+    request<Review[]>(`/reviews/${scanId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviews }),
+    }),
+
+  reviewStats: () => request<ReviewStats>('/reviews/stats'),
+
+  doctorReport: (scanId: number) => request<DoctorReportState>(`/reports/${scanId}/doctor`),
+
+  saveDoctorReport: (scanId: number, body: DoctorReportInput) =>
+    request<DoctorReportState>(`/reports/${scanId}/doctor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  patientSummary: (scanId: number, lang: Language) =>
+    request<PatientSummary>(`/reports/${scanId}/patient-summary?lang=${lang}`),
+
+  compare: (scanId: number) => request<Comparison>(`/predict/compare/${scanId}`),
+
+  createShareCode: () =>
+    request<{ code: string; expires_at: string }>('/sharing/codes', { method: 'POST' }),
+
+  redeemShareCode: (code: string) =>
+    request<Grant>('/sharing/codes/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    }),
+
+  reminders: () => request<Reminder[]>('/reminders'),
+
+  updateReminder: (id: number, status: ReminderStatus) =>
+    request<Reminder>(`/reminders/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }),
 
   /**
    * Heatmaps and the original image are behind auth, so they cannot be used as

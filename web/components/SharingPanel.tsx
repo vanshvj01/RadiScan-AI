@@ -1,5 +1,6 @@
 'use client';
 
+import QRCode from 'qrcode';
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, type Grant } from '@/lib/api';
@@ -43,6 +44,21 @@ export function SharingPanel() {
     load();
   }
 
+  // One-time code for sharing in person: the doctor types it or scans the QR.
+  const [code, setCode] = useState<{ code: string; expires_at: string; qr: string } | null>(null);
+
+  async function makeCode() {
+    setError(null);
+    try {
+      const c = await api.createShareCode();
+      // The QR holds only the code text -- no link, nothing to open.
+      const qr = await QRCode.toDataURL(c.code, { margin: 1, width: 180 });
+      setCode({ ...c, qr });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create a code');
+    }
+  }
+
   return (
     <div className="card">
       <h2 className="text-sm font-semibold">Share my history</h2>
@@ -64,6 +80,29 @@ export function SharingPanel() {
         </button>
       </form>
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+
+      <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+        {code ? (
+          <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={code.qr} alt={`QR code for share code ${code.code}`} className="h-28 w-28 rounded bg-white p-1" />
+            <div className="min-w-0">
+              <p className="font-mono text-lg font-semibold tracking-widest">{code.code}</p>
+              <p className="text-xs text-slate-500">
+                Show this to your doctor. Works once, until{' '}
+                {new Date(code.expires_at).toLocaleString()}.
+              </p>
+              <button className="mt-1 text-xs text-slate-500 underline" onClick={() => setCode(null)}>
+                Hide
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn-ghost w-full" onClick={makeCode} type="button">
+            Share in person with a one-time code
+          </button>
+        )}
+      </div>
 
       {grants.length > 0 && (
         <ul className="mt-3 divide-y divide-slate-100 text-sm dark:divide-slate-800">

@@ -36,6 +36,13 @@ def upgrade(engine: Engine) -> list[str]:
                 )
             applied.append("scans.patient_id")
 
+    if "predictions" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("predictions")}
+        if "quality" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE predictions ADD COLUMN quality JSON"))
+            applied.append("predictions.quality")
+
     if engine.dialect.name == "postgresql":
         # Native enum: new values must be added explicitly, outside a transaction.
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:

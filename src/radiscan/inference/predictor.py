@@ -17,6 +17,7 @@ import torch
 
 from radiscan.data.enhance import enhance
 from radiscan.data.loader import load_image
+from radiscan.data.quality import assess_quality
 from radiscan.data.transforms import apply_clahe, eval_transforms
 from radiscan.models.network import RadiScanNet, load_model
 from radiscan.modules.explainability import GradCAM, save_overlay
@@ -85,6 +86,9 @@ class RadiScanPredictor:
         display = {
             "image": apply_clahe(cleaned.image),
             "steps": cleaned.steps + ["enhanced contrast (CLAHE)"],
+            # Quality is judged on the upload itself, before any clean-up hides
+            # its problems; the clean-up notes reveal a photographed film.
+            "quality": assess_quality(raw, cleaned.steps),
         }
         return model_view, tensor, meta, display
 
@@ -139,6 +143,10 @@ class RadiScanPredictor:
         if explain:
             heatmaps = self._explain(tensor, raw_image, mean, heatmap_dir, top_k_heatmaps, scan_id)
 
+        quality = display["quality"]
+        if unc.get("confidence") is not None:
+            quality["metrics"]["model_confidence"] = round(float(np.mean(unc["confidence"])), 3)
+
         report = self.reporter.generate(
             scan_id=scan_id,
             labels=self.labels,
@@ -152,8 +160,22 @@ class RadiScanPredictor:
                 "temperature": float(self.model.temperature.item()),
                 "inference_ms": round(inference_ms, 1),
                 **image_meta,
+                "quality": quality,
             },
         )
+        if quality["status"] == "poor":
+            # Above every clinical recommendation: nothing else on the report
+            # should be acted on until the film is repeated.
+            report.recommendations.insert(
+                0,
+                "Image quality is poor ("
+                + "; ".join(
+                    i["message"].rstrip(".").lower()
+                    for i in quality["issues"]
+                    if i["level"] == "poor"
+                )
+                + "). Repeat the radiograph before relying on this analysis.",
+            )
 
         return {
             "scan_id": scan_id,
@@ -165,6 +187,7 @@ class RadiScanPredictor:
                 "uncertainty": float(unc.get("fracture_std", np.zeros(1))[0]),
             },
             "risk_level": report.risk_level,
+            "quality": quality,
             "heatmaps": heatmaps,
             "preprocessing": {
                 "steps": display["steps"],

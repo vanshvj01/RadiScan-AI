@@ -121,8 +121,11 @@ def client(tmp_path, monkeypatch):
     from services.api.routes import auth as auth_mod
     from services.api.routes import health as health_mod
     from services.api.routes import predictions as pred_mod
+    from services.api.routes import reminders as reminders_mod
     from services.api.routes import reports as reports_mod
+    from services.api.routes import reviews as reviews_mod
     from services.api.routes import sharing as sharing_mod
+    from services.api.routes import worklist as worklist_mod
 
     for mod in (
         session_mod,
@@ -131,6 +134,9 @@ def client(tmp_path, monkeypatch):
         pred_mod,
         reports_mod,
         sharing_mod,
+        reviews_mod,
+        worklist_mod,
+        reminders_mod,
         health_mod,
         main_mod,
     ):

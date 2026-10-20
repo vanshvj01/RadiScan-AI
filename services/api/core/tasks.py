@@ -80,6 +80,7 @@ def _run_inference(scan_id: int, db: Session) -> int:
             temperature=float(predictor.model.temperature.item()),
             mc_samples=predictor.mc_samples,
             inference_ms=result["inference_ms"],
+            quality=result.get("quality"),
         )
         db.add(prediction)
         db.flush()

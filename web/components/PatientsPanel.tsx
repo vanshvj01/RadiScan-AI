@@ -13,14 +13,55 @@ export function PatientsPanel({
   selectedId: number | null;
 }) {
   const [grants, setGrants] = useState<Grant[] | null>(null);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  useEffect(() => {
+  const load = () => {
     api.grants().then(setGrants).catch(() => setGrants([]));
-  }, []);
+  };
+
+  useEffect(load, []);
+
+  async function redeem(e: React.FormEvent) {
+    e.preventDefault();
+    if (!code.trim()) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const g = await api.redeemShareCode(code.trim());
+      setCode('');
+      setMsg({ ok: true, text: `${g.patient_name || '@' + g.patient_username} now shares with you.` });
+      load();
+      onOpen(g.patient_id);
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : 'Code not accepted' });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="card">
       <h2 className="text-sm font-semibold">My patients</h2>
+      <form onSubmit={redeem} className="mt-2 flex gap-2">
+        <input
+          className="input font-mono uppercase placeholder:normal-case placeholder:font-sans"
+          placeholder="Patient's code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          aria-label="Patient's share code"
+          autoComplete="off"
+        />
+        <button className="btn-primary shrink-0" disabled={busy || !code.trim()}>
+          Add
+        </button>
+      </form>
+      {msg && (
+        <p className={`mt-1 text-xs ${msg.ok ? 'text-green-700 dark:text-green-400' : 'text-red-600'}`}>
+          {msg.text}
+        </p>
+      )}
       {grants === null ? (
         <p className="mt-2 text-sm text-slate-500">Loading…</p>
       ) : grants.length === 0 ? (

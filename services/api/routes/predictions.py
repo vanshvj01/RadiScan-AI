@@ -26,13 +26,27 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from services.api.core.access import can_view_patient, viewable_scan, visible_scans
+from services.api.core.access import can_view_patient, can_view_scan, viewable_scan, visible_scans
+from services.api.core.clinical import finding_rows, is_deferred
 from services.api.core.security import current_user
 from services.api.core.settings import get_settings
 from services.api.core.tasks import process_scan
-from services.api.db.models import AuditLog, Prediction, Role, Scan, ScanStatus, User
+from services.api.db.models import (
+    AuditLog,
+    DoctorReport,
+    FindingReview,
+    Prediction,
+    Reminder,
+    Role,
+    Scan,
+    ScanStatus,
+    User,
+)
 from services.api.db.session import get_db
 from services.api.schemas.schemas import (
+    CompareRow,
+    CompareStudy,
+    Comparison,
     FindingOut,
     PredictionOut,
     ScanAccepted,
@@ -235,6 +249,7 @@ def results(
                 reliability=max(0.0, 1.0 - std / 0.25),
                 threshold=thr,
                 positive=prob >= thr,
+                deferred=is_deferred(label, prob, std, lo, hi, thr),
                 heatmap_url=(
                     f"{settings.api_prefix}/predict/heatmap/{scan.id}/{safe}" if has_map else None
                 ),
@@ -270,6 +285,128 @@ def results(
         enhancement_steps=steps,
         patient_id=scan.patient_id,
         patient_username=scan.patient_username,
+        quality=prediction.quality,
+    )
+
+
+def _heatmap_url(scan: Scan, label: str) -> str | None:
+    if not scan.heatmap_dir:
+        return None
+    safe = label.replace(" ", "_").replace("/", "-")
+    if (Path(scan.heatmap_dir) / f"{safe}.png").exists():
+        return f"{settings.api_prefix}/predict/heatmap/{scan.id}/{safe}"
+    return None
+
+
+def _study(scan: Scan, prediction: Prediction) -> CompareStudy:
+    has_enhanced = bool(scan.heatmap_dir and (Path(scan.heatmap_dir) / "_enhanced.png").exists())
+    return CompareStudy(
+        scan_id=scan.id,
+        created_at=scan.created_at,
+        risk_level=prediction.risk_level,
+        enhanced_url=f"{settings.api_prefix}/predict/enhanced/{scan.id}" if has_enhanced else None,
+    )
+
+
+# A probability move smaller than this is reported as stable: MC-Dropout spread
+# on the trained model is tiny, but calibration error is large (ECE 0.38), so
+# small differences between two films are not evidence of change.
+TREND_DELTA = 0.10
+
+
+@router.get("/compare/{scan_id}", response_model=Comparison)
+def compare(
+    scan_id: int,
+    prior_id: int | None = Query(None, description="Defaults to the patient's previous study"),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Comparison:
+    """This study against an earlier one of the same patient, finding by finding."""
+    scan = _owned_scan(scan_id, db, user)
+    current = db.query(Prediction).filter(Prediction.scan_id == scan.id).first()
+    if current is None or scan.patient_id is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "This study has no patient history to compare"
+        )
+
+    if prior_id is not None:
+        prior_scan = db.get(Scan, prior_id)
+        if (
+            prior_scan is None
+            or prior_scan.patient_id != scan.patient_id
+            or prior_scan.id == scan.id
+            or not can_view_scan(db, user, prior_scan)
+        ):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Scan {prior_id} not found")
+    else:
+        prior_scan = (
+            db.query(Scan)
+            .filter(
+                Scan.patient_id == scan.patient_id,
+                Scan.id != scan.id,
+                Scan.created_at <= scan.created_at,
+                Scan.status == ScanStatus.completed,
+            )
+            .order_by(Scan.created_at.desc(), Scan.id.desc())
+            .first()
+        )
+        if prior_scan is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No earlier study for this patient")
+
+    prior = db.query(Prediction).filter(Prediction.scan_id == prior_scan.id).first()
+    if prior is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "The earlier study has no results")
+
+    def call(row: dict) -> str:
+        return "deferred" if row["deferred"] else ("positive" if row["positive"] else "negative")
+
+    prior_rows = {r["label"]: r for r in finding_rows(prior)}
+    rows: list[CompareRow] = []
+    for r in finding_rows(current):
+        p = prior_rows.get(r["label"])
+        if p is None:  # label set changed between model versions
+            continue
+        delta = r["probability"] - p["probability"]
+        now, before = call(r), call(p)
+        # Crossing the threshold alone is not news: probabilities on this model
+        # cluster near their thresholds, so a 4-point wobble can flip the call.
+        # "new"/"resolved" need the same size of move as "worse"/"better".
+        if now == "positive" and before == "negative" and delta >= TREND_DELTA:
+            trend = "new"
+        elif now == "negative" and before == "positive" and delta <= -TREND_DELTA:
+            trend = "resolved"
+        elif delta >= TREND_DELTA:
+            trend = "worse"
+        elif delta <= -TREND_DELTA:
+            trend = "better"
+        else:
+            trend = "stable"
+        if r["label"] == "No Finding" and trend in ("worse", "better", "new", "resolved"):
+            # More "No Finding" is good news; flip the wording, not the numbers.
+            trend = {"worse": "better", "better": "worse", "new": "better", "resolved": "worse"}[
+                trend
+            ]
+        rows.append(
+            CompareRow(
+                label=r["label"],
+                current=r["probability"],
+                prior=p["probability"],
+                delta=delta,
+                current_call=now,
+                prior_call=before,
+                trend=trend,
+                current_heatmap=_heatmap_url(scan, r["label"]),
+                prior_heatmap=_heatmap_url(prior_scan, r["label"]),
+            )
+        )
+    order = {"new": 0, "worse": 1, "resolved": 2, "better": 3, "stable": 4}
+    rows.sort(key=lambda x: (order[x.trend], -abs(x.delta)))
+
+    return Comparison(
+        current=_study(scan, current),
+        prior=_study(prior_scan, prior),
+        days_between=abs((scan.created_at - prior_scan.created_at).days),
+        rows=rows,
     )
 
 
@@ -340,5 +477,10 @@ def delete_scan(
             ip_address=request.client.host if request.client else None,
         )
     )
+    # SQLite does not enforce ON DELETE without a pragma, so clear dependants
+    # explicitly rather than leave rows pointing at a deleted scan.
+    db.query(FindingReview).filter(FindingReview.scan_id == scan.id).delete()
+    db.query(DoctorReport).filter(DoctorReport.scan_id == scan.id).delete()
+    db.query(Reminder).filter(Reminder.scan_id == scan.id).update({Reminder.scan_id: None})
     db.delete(scan)
     db.commit()
