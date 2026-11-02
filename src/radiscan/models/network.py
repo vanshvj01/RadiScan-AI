@@ -189,6 +189,9 @@ def load_model(
         pretrained=False,
         use_transformer=ckpt.get("use_transformer", False),
         image_size=ckpt.get("image_size", 320),
+        # optional heads are rebuilt only if the checkpoint was trained with them
+        fracture_head=any(k.startswith("head.fracture") for k in ckpt["state_dict"]),
+        confidence_head=any(k.startswith("head.confidence") for k in ckpt["state_dict"]),
     )
     missing, unexpected = model.load_state_dict(ckpt["state_dict"], strict=strict)
     if missing or unexpected:
