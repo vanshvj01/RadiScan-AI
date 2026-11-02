@@ -73,6 +73,11 @@ def main() -> int:
             df["Path"] = df["Path"].str.split("/", n=1).str[-1]
         df.to_csv(master, index=False)
 
+    attached_splits = sorted(Path("/kaggle/input").rglob("splits/test.csv"))
+    if attached_splits and not (SPLITS / "test.csv").exists():
+        # the original run's own split files: identical test set by construction
+        shutil.copytree(attached_splits[0].parent, SPLITS, dirs_exist_ok=True)
+        print("using attached original splits from", attached_splits[0].parent)
     if not (SPLITS / "test.csv").exists():
         sh(
             f"python -m radiscan.cli.prepare_data --source {master} --out-dir {SPLITS} "
@@ -175,6 +180,8 @@ inference:
     for f in (WORK / "logs").glob("*.json") if (WORK / "logs").exists() else []:
         shutil.copy(f, bundle / f"main_{f.name}")
     shutil.copy(cfg, bundle / "reviewer.yaml")
+    for f in Path("/kaggle/input").rglob("logs/*.json"):
+        shutil.copy(f, bundle / f"orig_{f.name}")
     shutil.make_archive(str(WORK / "reviewer_bundle"), "zip", bundle)
     print("\n==== REVIEWER RESULTS ====")
     print((OUT / "results.json").read_text()[:20000])

@@ -1044,6 +1044,8 @@ def main(argv=None) -> int:
         "train_meta": {k: meta.get(k) for k in ("epoch", "metrics", "model_version")},
     }
 
+    (out / "results.json").write_text(json.dumps(results, indent=2, default=float))
+
     # R11 -----------------------------------------------------------------
     if not args.skip_bench:
         paths = test["paths"].tolist() if hasattr(test["paths"], "tolist") else list(test["paths"])
@@ -1053,7 +1055,11 @@ def main(argv=None) -> int:
             n = args.bench_images if dv.type == "cuda" else args.cpu_bench_images
             s_list = [1, 5, 10, 20, 30, 50] if dv.type == "cuda" else [1, 5, 20]
             bss = [1, 8, 32] if dv.type == "cuda" else [1]
-            st, lat, thr, res = benchmark(args.checkpoint, paths, dv, out, n, s_list, bss)
+            try:
+                st, lat, thr, res = benchmark(args.checkpoint, paths, dv, out, n, s_list, bss)
+            except Exception as exc:  # a benchmark failure must not lose the analysis
+                log.exception("benchmark on %s failed: %s", dv, exc)
+                continue
             bench[dv.type] = {
                 "stages": st.reset_index().to_dict(orient="records"),
                 "latency_vs_S": lat.to_dict(orient="records"),
