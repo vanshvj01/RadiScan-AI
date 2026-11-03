@@ -153,11 +153,12 @@ inference:
         timing["reviewer_experiments_minutes"] = (time.time() - t0) / 60
 
     t0 = time.time()
-    sh(
+    if os.environ.get("SKIP_ABLATION") != "1":
+      sh(
         f"python -m paper.run_ablations --config {cfg} --out {WORK / 'ablation'} "
         "--train-images 20000 --epochs 8",
         check=False,
-    )
+      )
     timing["ablation_minutes"] = (time.time() - t0) / 60
     try:
         import torch
