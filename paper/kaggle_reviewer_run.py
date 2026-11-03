@@ -41,10 +41,31 @@ def sh(cmd: str, check=True) -> int:
     return subprocess.run(cmd, shell=True, check=check, cwd=REPO, env=env).returncode
 
 
+def shallow_find(name_or_rel: str, root: str = "/kaggle/input", max_depth: int = 6):
+    """Find files without walking image folders.
+
+    Path.rglob over /kaggle/input visits every one of CheXpert's 224k images on
+    Kaggle's network mount and takes hours. Prune patient/study folders and
+    stop at a fixed depth instead.
+    """
+    rel = name_or_rel.split("/")
+    hits = []
+    base_depth = root.rstrip("/").count("/")
+    for dirpath, dirnames, filenames in os.walk(root):
+        depth = dirpath.count("/") - base_depth
+        dirnames[:] = [d for d in dirnames if not d.startswith(("patient", "study")) and d not in ("valid", "train", "repo", "test") or depth < 1]
+        dirnames[:] = [d for d in dirnames if not d.startswith(("patient", "study"))]
+        if depth >= max_depth:
+            dirnames[:] = []
+        if rel[-1] in filenames and (len(rel) == 1 or Path(dirpath).name == rel[-2]):
+            hits.append(Path(dirpath) / rel[-1])
+    return sorted(hits)
+
+
 def find_data():
     import pandas as pd
 
-    cands = sorted(Path("/kaggle/input").rglob("train.csv"))
+    cands = [c for c in shallow_find("train.csv") if "splits" not in c.parts]
     assert cands, "attach the CheXpert dataset"
     train_csv = cands[0]
     rel = str(pd.read_csv(train_csv, nrows=1)["Path"].iloc[0])
@@ -76,7 +97,7 @@ def main() -> int:
             df["Path"] = df["Path"].str.split("/", n=1).str[-1]
         df.to_csv(master, index=False)
 
-    attached_splits = sorted(Path("/kaggle/input").rglob("splits/test.csv"))
+    attached_splits = shallow_find("splits/test.csv")
     if attached_splits and not (SPLITS / "test.csv").exists():
         # the original run's own split files: identical test set by construction
         shutil.copytree(attached_splits[0].parent, SPLITS, dirs_exist_ok=True)
@@ -135,7 +156,7 @@ inference:
 """
     )
 
-    attached = sorted(Path("/kaggle/input").rglob("best_model.pth"))
+    attached = shallow_find("best_model.pth")
     ckpt = WORK / "checkpoints" / "best_model.pth"
     timing = {}
     if attached:
@@ -184,7 +205,7 @@ inference:
     for f in (WORK / "logs").glob("*.json") if (WORK / "logs").exists() else []:
         shutil.copy(f, bundle / f"main_{f.name}")
     shutil.copy(cfg, bundle / "reviewer.yaml")
-    for f in Path("/kaggle/input").rglob("logs/*.json"):
+    for f in [h for n in ("history.json", "final_summary.json") for h in shallow_find("logs/" + n)]:
         shutil.copy(f, bundle / f"orig_{f.name}")
     shutil.make_archive(str(WORK / "reviewer_bundle"), "zip", bundle)
     print("\n==== REVIEWER RESULTS ====")
