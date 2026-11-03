@@ -60,7 +60,10 @@ def find_data():
 
 def main() -> int:
     t_start = time.time()
-    sh("pip install -q timm albumentations pydicom pydantic-settings 2>&1 | tail -1", check=False)
+    try:  # Kaggle images ship these; a pip resolve there can take very long
+        import albumentations, pydicom, timm  # noqa: F401
+    except ImportError:
+        sh("pip install -q timm albumentations pydicom 2>&1 | tail -1", check=False)
     import pandas as pd
 
     train_csv, data_root, strip = find_data()
