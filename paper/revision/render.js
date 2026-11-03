@@ -19,9 +19,19 @@ const TROMAN = ROMAN;
 
 function runs(items, base = {}) {
   if (typeof items === "string") items = [items];
-  const res = [];
+  // split ⟦pending⟧ markers into their own highlighted runs
+  const expanded = [];
   for (const it of items) {
-    const r = typeof it === "string" ? { text: it } : it;
+    const r0 = typeof it === "string" ? { text: it } : it;
+    const parts = String(r0.text).split(/(⟦[^⟧]*⟧)/);
+    for (const p of parts) {
+      if (p === "") continue;
+      const isP = p.startsWith("⟦");
+      expanded.push(Object.assign({}, r0, { text: isP ? p.slice(1, -1) : p, hl: r0.hl || isP }));
+    }
+  }
+  const res = [];
+  for (const r of expanded) {
     const o = {
       text: r.text, font: FONT, size: r.size || base.size || 20,
       bold: r.b || base.b, italics: r.i || base.i,

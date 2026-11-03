@@ -327,10 +327,14 @@ add("h2", text="Pre-flight Data Verification")
 P("An earlier iteration contained a loader that returned a blank frame for any unreadable image. A path-prefix mismatch made every image unreadable, and a full training run completed without error at chance-level discrimination. The loader now raises, and a verification command samples the annotation file, confirms that paths resolve, and reports per-class positive rates before training; a class with zero prevalence reveals column misalignment in seconds.")
 add("h2", text="Training Configuration")
 hist_txt = ""
-if HIST and isinstance(HIST, list):
-    hist_txt = f" Training ran for {len(HIST)} epochs before early stopping."
-elif HIST and isinstance(HIST, dict) and "val_mean_auc" in HIST:
-    hist_txt = f" Training ran for {len(HIST['val_mean_auc'])} epochs before early stopping."
+if HIST and isinstance(HIST, list) and HIST and "val_mean_auc" in HIST[0]:
+    best_e = max(HIST, key=lambda e: e["val_mean_auc"])
+    after = [e for e in HIST if e["epoch"] > best_e["epoch"]]
+    mins = sum(e["seconds"] for e in HIST) / 60
+    med = sorted(e["seconds"] for e in HIST)[len(HIST) // 2] / 60
+    hist_txt = (f" Validation mean AUROC rose from {f(HIST[0]['val_mean_auc'])} after the first epoch to {f(best_e['val_mean_auc'])} at epoch {best_e['epoch']}"
+                + (f", then fell abruptly (to {f(min(e['val_mean_auc'] for e in after))} by epoch {min(after, key=lambda e: e['val_mean_auc'])['epoch']}) and did not recover, so early stopping ended the run after epoch {HIST[-1]['epoch']} and the epoch-{best_e['epoch']} weights were retained" if after and min(e['val_mean_auc'] for e in after) < best_e['val_mean_auc'] - 0.05 else "")
+                + f". The run took {f(mins / 60, 1)} h ({f(med, 0)} min per epoch, dominated by image decoding and preprocessing on the CPU).")
 P("Optimisation uses AdamW [15] (learning rate 10", {"text": "\u22124", "sup": True}, ", weight decay 10", {"text": "\u22124", "sup": True}, ", tenfold rate on the heads), a two-epoch linear warm-up followed by cosine decay, a one-epoch frozen-backbone phase, mixed precision [18], gradient clipping at 5.0 and an exponential moving average of the weights (decay 0.999) used for evaluation and checkpointing. Batch size is 64, the maximum of 25 epochs is subject to early stopping on validation mean AUROC with patience 6, and the seed is 42. "
   f"The best checkpoint was reached at epoch {R.get('epoch')}.{hist_txt} Training used a Kaggle GPU; all evaluation and ablation runs used an {gpu_name}.")
 add("h2", text="Metrics")
@@ -470,7 +474,7 @@ add("cols", n=2)
 # ---------------------------------------------------------------- VIII
 add("h1", text="Limitations")
 P("Labels are extracted automatically from reports, and the resulting noise bounds achievable discrimination. The corpus originates from a single institution, and we present no evidence of generalisation to other equipment, protocols or populations [10]; external validation on an Indian hospital cohort is required before any claim of applicability there. Only frontal projections are used, and no prior studies or clinical metadata are modelled.")
-P("Because dropout is applied only after the trunk, the MC estimate captures uncertainty in the heads given a fixed representation; it is closer to last-layer Bayesian inference than to a posterior over the full network, which explains the small magnitude of \u03c3. Deep ensembles [19] would capture representation uncertainty at proportionally greater cost. The residual miscalibration under temperature scaling shows that loss design and calibration interact; class-wise calibration is needed whenever an asymmetric loss is used. The ablations use a reduced budget and a single seed per arm.")
+P("Because dropout is applied only after the trunk, the MC estimate captures uncertainty in the heads given a fixed representation; it is closer to last-layer Bayesian inference than to a posterior over the full network, which explains the small magnitude of \u03c3. Deep ensembles [19] would capture representation uncertainty at proportionally greater cost. The residual miscalibration under temperature scaling shows that loss design and calibration interact; class-wise calibration is needed whenever an asymmetric loss is used. The ablations use a reduced budget and a single seed per arm. Validation performance of the main run collapsed after its best epoch; early stopping protected the reported model, but the cause (possibly an optimisation instability once the full learning rate and the tenfold head rate act on the unfrozen backbone under mixed precision) has not been isolated, and a lower head learning rate or longer warm-up should be tested.")
 P("Grad-CAM indicates correlation, not localisation; quantifying localisation requires bounding-box annotation and a pointing-game protocol. Finally, the system has undergone no prospective evaluation, reader study or regulatory assessment, and we make no such claim.")
 
 # ---------------------------------------------------------------- IX
